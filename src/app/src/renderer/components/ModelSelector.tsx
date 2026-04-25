@@ -6,10 +6,13 @@ interface ModelSelectorProps {
   disabled: boolean;
 }
 
-// Strip the "user." namespace from custom-registered models so the dropdown
-// shows the bare model id. The full id (with prefix) stays in titles/tooltips
-// and is what the API sees — only the visible label is shortened.
-const displayId = (id: string): string => id.replace(/^user\./, '');
+// Strip the "user.halo-" / "user." namespace from custom-registered models so
+// the dropdown shows the bare model name. user.halo-1bit-2b → 1bit-2b,
+// user.bonsai-1.7b-tq2-h1b → bonsai-1.7b-tq2-h1b. The full id (with prefix)
+// stays in titles/tooltips and is what the API sees — only the visible label
+// is shortened.
+const displayId = (id: string): string =>
+  id.replace(/^user\.halo-/, '').replace(/^user\./, '');
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled }) => {
   const {
