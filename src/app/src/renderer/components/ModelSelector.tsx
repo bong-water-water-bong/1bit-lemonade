@@ -6,6 +6,11 @@ interface ModelSelectorProps {
   disabled: boolean;
 }
 
+// Strip the "user." namespace from custom-registered models so the dropdown
+// shows the bare model id. The full id (with prefix) stays in titles/tooltips
+// and is what the API sees — only the visible label is shortened.
+const displayId = (id: string): string => id.replace(/^user\./, '');
+
 const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled }) => {
   const {
     downloadedModels,
@@ -70,7 +75,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled }) => {
         disabled={disabled}
         title={selectedModel}
       >
-        <span className="model-selector-label">{selectedModel}</span>
+        <span className="model-selector-label">{displayId(selectedModel)}</span>
         <svg className="model-selector-chevron" width="10" height="10" viewBox="0 0 10 10">
           <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
@@ -86,7 +91,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ disabled }) => {
                 onClick={() => handleSelect(model.id)}
                 title={model.id}
               >
-                {model.id}
+                {displayId(model.id)}
               </div>
             )) : (
               <div className="model-selector-empty">No models match</div>
