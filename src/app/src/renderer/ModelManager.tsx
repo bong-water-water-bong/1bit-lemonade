@@ -20,6 +20,12 @@ import { RECIPE_DISPLAY_NAMES } from './utils/recipeNames';
 import { EjectIcon } from './components/Icons';
 import { getCollectionComponents, isCollectionFullyDownloaded, isCollectionModel, isModelEffectivelyDownloaded, isModelEffectivelyLoaded } from './utils/collectionModels';
 
+// Strip the "user.halo-" / "user." namespace from custom-registered models
+// so headings/labels show the bare model name. Full id stays in title /
+// tooltip and on the wire.
+const displayId = (id: string): string =>
+  id.replace(/^user\.halo-/, '').replace(/^user\./, '');
+
 interface ModelFamily {
   displayName: string;
   regex: RegExp;
@@ -1250,7 +1256,7 @@ const [searchQuery, setSearchQuery] = useState('');
         <div className="model-item-content">
           <div className="model-info-left">
             <span className={`model-status-indicator ${statusClass}`} title={statusTitle}>●</span>
-            <span className="model-name" title={nameTooltip}>{displayName ?? modelName}</span>
+            <span className="model-name" title={nameTooltip}>{displayId(displayName ?? modelName)}</span>
             <span className="model-size">{formatSize(getModelSize(modelName, modelInfo))}</span>
             {renderActionButtons(modelName, isHovered)}
           </div>
