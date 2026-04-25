@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GAIA — 1bit.systems</title>
+  <link rel="icon" type="image/png" href="/app/favicon.ico">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --accent: #00d4ff;
+      --accent2: #ff4d8d;
+      --panel: #161b22;
+      --border: #30363d;
+      --code-bg: #1c2128;
+      --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, "Segoe UI", Inter, sans-serif }
+    .topbar { display: flex; align-items: center; gap: 1rem; padding: .8rem 1.2rem; border-bottom: 1px solid var(--border); background: rgba(13,17,23,.85); position: sticky; top: 0; z-index: 5 }
+    .brand { display: flex; align-items: center; gap: .6rem; color: var(--fg); text-decoration: none; font-weight: 600 }
+    .brand img { width: 28px; height: 28px; border-radius: 6px }
+    .brand .dot { color: var(--accent) }
+    .pill { font-family: var(--mono); font-size: .75rem; color: var(--accent); border: 1px solid var(--accent); padding: .15rem .5rem; border-radius: 999px; letter-spacing: .03em }
+    .pill.warn { color: var(--accent2); border-color: var(--accent2) }
+    nav { margin-left: auto; display: flex; gap: 1rem }
+    nav a { color: var(--muted); text-decoration: none; font-size: .92rem }
+    nav a:hover { color: var(--fg) }
+    main { max-width: 880px; margin: 0 auto; padding: 2rem 1.2rem 4rem }
+    h1 { font-size: 1.8rem; margin: 0 0 .4rem; letter-spacing: -.01em }
+    .lede { color: var(--muted); margin: 0 0 1.6rem }
+    .lede a { color: var(--accent) }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.2rem; margin: 0 0 1.2rem }
+    .panel h2 { margin: 0 0 .6rem; font-size: 1rem; font-family: var(--mono); color: var(--accent); letter-spacing: .03em; text-transform: uppercase }
+    .row { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap }
+    .status { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .85rem }
+    .dotled { width: .55rem; height: .55rem; border-radius: 50%; background: #555 }
+    .dotled.ok { background: #3fb950 }
+    .dotled.bad { background: #ff7b72 }
+    code { font-family: var(--mono); background: var(--code-bg); padding: .15em .4em; border-radius: 4px; font-size: .9em }
+    textarea { width: 100%; min-height: 90px; padding: .7rem .9rem; background: var(--code-bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; font-family: var(--mono); font-size: .92rem; resize: vertical }
+    textarea:focus { outline: none; border-color: var(--accent) }
+    button { background: var(--accent); color: #0d1117; border: none; padding: .55rem 1rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-family: inherit }
+    button:hover { background: #4de4ff }
+    button:disabled { opacity: .5; cursor: not-allowed }
+    pre.out { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1rem; overflow: auto; white-space: pre-wrap; font-family: var(--mono); font-size: .9rem; min-height: 1.2em; margin: .8rem 0 0 }
+    .tools-list { margin: .4rem 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: .4rem }
+    .tools-list li { font-family: var(--mono); font-size: .8rem; color: var(--accent2); border: 1px solid var(--accent2); padding: .15rem .55rem; border-radius: 999px }
+    .tools-list li.empty { color: var(--muted); border-color: var(--border) }
+    .hint { color: var(--muted); font-size: .85rem; margin-top: .6rem }
+    footer { color: var(--muted); font-size: .82rem; margin-top: 2rem; text-align: center }
+    footer a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted var(--border) }
+    footer a:hover { color: var(--fg) }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="/app/">
+    <img src="/app/favicon.ico" alt="">
+    <span><b>1</b>bit<span class="dot">.</span>systems</span>
+  </a>
+  <span class="pill">GAIA agent</span>
+  <nav>
+    <a href="/app/">webui</a>
+    <a href="https://1bit.systems/docs/">docs</a>
+    <a href="https://github.com/bong-water-water-bong/1bit-gaia">fork</a>
+  </nav>
+</header>
+
+<main>
+  <h1>GAIA</h1>
+  <p class="lede">
+    Multi-agent loop on top of <code>lemond</code>. Vendored from <a href="https://github.com/amd/gaia">amd/gaia</a>,
+    ported to C++20 in <a href="https://github.com/bong-water-water-bong/1bit-services">1bit-services/agent-core</a>.
+    Backend lives at <code>:8196</code>; the bearer-gated tailnet path is <code>/agent/*</code>.
+  </p>
+
+  <section class="panel">
+    <h2>service</h2>
+    <div class="row">
+      <span class="status"><span id="led" class="dotled"></span><span id="led-text">checking…</span></span>
+      <span class="hint" id="endpoint-hint"></span>
+    </div>
+    <h2 style="margin-top:1.1rem">tools</h2>
+    <ul class="tools-list" id="tools"><li class="empty">loading…</li></ul>
+  </section>
+
+  <section class="panel">
+    <h2>ask</h2>
+    <textarea id="q" placeholder="Ask the agent..."></textarea>
+    <div class="row" style="margin-top:.7rem">
+      <button id="ask">Run</button>
+      <span class="hint">Streams not yet wired — single-shot synchronous call. Default model is whatever <code>ONEBIT_AGENT_MODEL_ID</code> is set to in the systemd unit.</span>
+    </div>
+    <pre class="out" id="out"></pre>
+  </section>
+
+  <footer>
+    <a href="https://1bit.systems">1bit.systems</a> ·
+    <a href="https://github.com/bong-water-water-bong/1bit-gaia">fork</a> ·
+    <a href="https://github.com/amd/gaia">upstream amd/gaia</a> ·
+    GAIA UI surface lands with Run 5 weights.
+  </footer>
+</main>
+
+<script>
+(function () {
+  const led = document.getElementById('led');
+  const ledText = document.getElementById('led-text');
+  const hint = document.getElementById('endpoint-hint');
+  const toolsList = document.getElementById('tools');
+  const q = document.getElementById('q');
+  const askBtn = document.getElementById('ask');
+  const out = document.getElementById('out');
+
+  // Direct local probe; the bearer-gated tailnet path is /agent/* via Caddy.
+  const base = window.location.origin.includes(':8180') ? 'http://127.0.0.1:8196' : '';
+  const healthUrl = base ? base + '/healthz' : '/agent/healthz';
+  const toolsUrl = base ? base + '/api/agent/tools' : '/agent/api/agent/tools';
+  const askUrl = base ? base + '/api/agent/ask' : '/agent/api/agent/ask';
+
+  hint.textContent = base ? 'direct → 127.0.0.1:8196' : 'via /agent/* (bearer-gated)';
+
+  fetch(healthUrl).then(r => r.json()).then(d => {
+    if (d.ok) { led.classList.add('ok'); ledText.textContent = 'live · ' + (d.service || '1bit-agent'); }
+    else { led.classList.add('bad'); ledText.textContent = 'unhealthy'; }
+  }).catch(() => { led.classList.add('bad'); ledText.textContent = 'unreachable'; });
+
+  fetch(toolsUrl).then(r => r.json()).then(d => {
+    toolsList.innerHTML = '';
+    if (!d.tools || d.tools.length === 0) {
+      const li = document.createElement('li'); li.className = 'empty';
+      li.textContent = '(no tools registered — base agent loop only)';
+      toolsList.appendChild(li);
+      return;
+    }
+    d.tools.forEach(t => { const li = document.createElement('li'); li.textContent = t.name; toolsList.appendChild(li); });
+  }).catch(() => {
+    toolsList.innerHTML = '<li class="empty">(unreachable)</li>';
+  });
+
+  askBtn.addEventListener('click', async () => {
+    const query = q.value.trim();
+    if (!query) return;
+    askBtn.disabled = true; askBtn.textContent = '…';
+    out.textContent = '';
+    try {
+      const res = await fetch(askUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
+      const data = await res.json();
+      out.textContent = data.result || data.error || JSON.stringify(data, null, 2);
+    } catch (e) {
+      out.textContent = 'error: ' + e.message;
+    } finally {
+      askBtn.disabled = false; askBtn.textContent = 'Run';
+    }
+  });
+  q.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) askBtn.click(); });
+})();
+</script>
+
+</body>
+</html>
