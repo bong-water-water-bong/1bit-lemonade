@@ -1,0 +1,104 @@
+name: 1bit · sync from upstream
+
+# 1bit.systems-managed workflow. Polls upstream lemonade-sdk/lemonade hourly,
+# opens a PR against this fork's main when upstream is ahead. PR-only, never
+# auto-merges — review surfaces in the PR before any change to the fork's main.
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # hourly at :17 — covers both ongoing commits and tagged releases
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: lemonade-sdk/lemonade
+      UPSTREAM_LABEL: lemonade
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream --tags --prune
+
+      - name: Detect drift
+        id: detect
+        run: |
+          set -euo pipefail
+          BEHIND=$(git rev-list --count origin/main..upstream/main || echo 0)
+          AHEAD=$(git rev-list --count upstream/main..origin/main || echo 0)
+          UPSTREAM_HEAD=$(git rev-parse upstream/main)
+          UPSTREAM_TAGS=$(git ls-remote --tags upstream | awk '{print $2}' | sed 's|refs/tags/||;s|\^{}||' | sort -u)
+          LOCAL_TAGS=$(git tag -l | sort -u)
+          NEW_TAGS=$(comm -23 <(printf '%s\n' "$UPSTREAM_TAGS") <(printf '%s\n' "$LOCAL_TAGS") | grep -v '^$' || true)
+          {
+            echo "behind=$BEHIND"
+            echo "ahead=$AHEAD"
+            echo "upstream_head=$UPSTREAM_HEAD"
+            echo "new_tags<<NEW_TAGS_EOF"
+            echo "$NEW_TAGS"
+            echo "NEW_TAGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "Behind: $BEHIND, Ahead: $AHEAD"
+
+      - name: Up to date — exit cleanly
+        if: steps.detect.outputs.behind == '0'
+        run: echo "Fork is current with upstream/main. Nothing to do."
+
+      - name: Stage sync branch from upstream/main
+        if: steps.detect.outputs.behind != '0'
+        run: |
+          set -euo pipefail
+          git config user.name  "1bit-sync-bot"
+          git config user.email "1bit-sync-bot@users.noreply.github.com"
+          git checkout -B sync-upstream upstream/main
+          git push origin sync-upstream --force-with-lease
+
+      - name: Open or refresh sync PR
+        if: steps.detect.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEHIND: ${{ steps.detect.outputs.behind }}
+          AHEAD: ${{ steps.detect.outputs.ahead }}
+          UPSTREAM_HEAD: ${{ steps.detect.outputs.upstream_head }}
+          NEW_TAGS: ${{ steps.detect.outputs.new_tags }}
+        run: |
+          set -euo pipefail
+          # Build PR body in a tmp file so untrusted values (NEW_TAGS, UPSTREAM_HEAD) never enter shell parsing.
+          BODY_FILE=$(mktemp)
+          {
+            printf 'Automated sync of `%s@main` into this fork'\''s `main`.\n\n' "$UPSTREAM_REPO"
+            printf '| metric | value |\n|---|---|\n'
+            printf '| commits behind upstream | %s |\n' "$BEHIND"
+            printf '| commits ahead of upstream (1bit-only patches) | %s |\n' "$AHEAD"
+            printf '| upstream HEAD | `%s` |\n\n' "$UPSTREAM_HEAD"
+            printf '**New tags upstream not in fork:**\n```\n'
+            printf '%s\n' "$NEW_TAGS"
+            printf '```\n\n'
+            printf '## How to merge\n\n'
+            printf -- '- **No 1bit-only patches in flight (ahead == 0):** merge as fast-forward, this is the safe path.\n'
+            printf -- '- **1bit-only patches present (ahead > 0):** review the diff carefully. If conflicts, resolve locally:\n'
+            printf '  ```\n'
+            printf '  git fetch origin sync-upstream upstream/main\n'
+            printf '  git checkout main\n'
+            printf '  git merge upstream/main\n'
+            printf '  ```\n\n'
+            printf 'PR-only sync — never auto-merges. Owned by `.github/workflows/1bit-sync-upstream.yml`.\n'
+          } > "$BODY_FILE"
+
+          TITLE="chore: sync ${BEHIND} commits from upstream ${UPSTREAM_LABEL}"
+          PR_NUM=$(gh pr list --head sync-upstream --base main --state open --json number -q '.[0].number' || true)
+          if [ -z "$PR_NUM" ]; then
+            gh pr create --base main --head sync-upstream --title "$TITLE" --body-file "$BODY_FILE"
+          else
+            gh pr edit "$PR_NUM" --title "$TITLE" --body-file "$BODY_FILE"
+          fi
