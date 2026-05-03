@@ -24,6 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.SYNC_UPSTREAM_PAT }}
 
       - name: Add upstream remote and fetch
         run: |
@@ -66,7 +67,7 @@ jobs:
       - name: Open or refresh sync PR
         if: steps.detect.outputs.behind != '0'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.SYNC_UPSTREAM_PAT }}
           BEHIND: ${{ steps.detect.outputs.behind }}
           AHEAD: ${{ steps.detect.outputs.ahead }}
           UPSTREAM_HEAD: ${{ steps.detect.outputs.upstream_head }}
