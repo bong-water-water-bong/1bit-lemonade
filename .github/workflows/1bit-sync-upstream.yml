@@ -97,9 +97,23 @@ jobs:
           } > "$BODY_FILE"
 
           TITLE="chore: sync ${BEHIND} commits from upstream ${UPSTREAM_LABEL}"
+          # GitHub indexes a freshly-force-pushed branch async — give it a moment
+          # before we ask the GraphQL PR API to see it.
+          sleep 5
           PR_NUM=$(gh pr list --head sync-upstream --base main --state open --json number -q '.[0].number' || true)
-          if [ -z "$PR_NUM" ]; then
-            gh pr create --base main --head sync-upstream --title "$TITLE" --body-file "$BODY_FILE"
-          else
+          if [ -n "$PR_NUM" ]; then
             gh pr edit "$PR_NUM" --title "$TITLE" --body-file "$BODY_FILE"
+          else
+            # Try create, but if it fails with the indexing race, sleep and re-poll for
+            # a PR (the previous run may have actually created one despite reporting failure).
+            if ! gh pr create --base main --head sync-upstream --title "$TITLE" --body-file "$BODY_FILE"; then
+              sleep 10
+              PR_NUM=$(gh pr list --head sync-upstream --base main --state open --json number -q '.[0].number' || true)
+              if [ -n "$PR_NUM" ]; then
+                gh pr edit "$PR_NUM" --title "$TITLE" --body-file "$BODY_FILE"
+              else
+                echo "PR create failed and no existing PR found — surfacing failure for human review."
+                exit 1
+              fi
+            fi
           fi
