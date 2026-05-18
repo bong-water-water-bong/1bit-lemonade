@@ -33,14 +33,18 @@
         "checkpoint": "amd/DeepSeek-R1-Distill-Llama-8B-awq-asym-uint4-g128-lmhead-onnx-cpu",
         "recipe": "ryzenai-llm",
         "suggested": true,
-        "labels": ["reasoning"],
+        "labels": [
+            "reasoning"
+        ],
         "size": 5.78
     },
     "DeepSeek-R1-Distill-Qwen-7B-CPU": {
         "checkpoint": "amd/DeepSeek-R1-Distill-Llama-8B-awq-asym-uint4-g128-lmhead-onnx-cpu",
         "recipe": "ryzenai-llm",
         "suggested": true,
-        "labels": ["reasoning"],
+        "labels": [
+            "reasoning"
+        ],
         "size": 5.78
     },
     "AMD-OLMo-1B-SFT-DPO-Hybrid": {
@@ -664,7 +668,7 @@
         "recipe": "llamacpp",
         "suggested": true,
         "labels": [
-	        "hot",
+            "hot",
             "tool-calling",
             "vision",
             "llamacpp"
@@ -677,9 +681,9 @@
         "recipe": "llamacpp",
         "suggested": true,
         "labels": [
-	        "hot",
+            "hot",
             "tool-calling",
-	        "vision",
+            "vision",
             "llamacpp"
         ],
         "size": 18.3
@@ -839,6 +843,30 @@
         ],
         "size": 6.19
     },
+    "Qwen2.5-Omni-7B-GGUF": {
+        "checkpoint": "ggml-org/Qwen2.5-Omni-7B-GGUF:Q4_K_M",
+        "mmproj": "mmproj-Qwen2.5-Omni-7B-f16.gguf",
+        "recipe": "llamacpp",
+        "suggested": true,
+        "hf_load": true,
+        "labels": [
+            "vision",
+            "chat-transcription"
+        ],
+        "size": 4.68
+    },
+    "Qwen2.5-Omni-3B-GGUF": {
+        "checkpoint": "ggml-org/Qwen2.5-Omni-3B-GGUF:Q4_K_M",
+        "mmproj": "mmproj-Qwen2.5-Omni-3B-f16.gguf",
+        "recipe": "llamacpp",
+        "suggested": true,
+        "hf_load": true,
+        "labels": [
+            "vision",
+            "chat-transcription"
+        ],
+        "size": 2.10
+    },
     "Qwen3-Next-80B-A3B-Instruct-GGUF": {
         "checkpoint": "unsloth/Qwen3-Next-80B-A3B-Instruct-GGUF:Qwen3-Next-80B-A3B-Instruct-UD-Q4_K_XL.gguf",
         "recipe": "llamacpp",
@@ -915,6 +943,17 @@
         ],
         "size": 68.4
     },
+    "Qwen3.5-122B-A10B-MTP-GGUF": {
+        "checkpoint": "unsloth/Qwen3.5-122B-A10B-MTP-GGUF:UD-Q4_K_XL",
+        "mmproj": "mmproj-F16.gguf",
+        "recipe": "llamacpp",
+        "suggested": true,
+        "labels": [
+            "tool-calling",
+            "mtp"
+        ],
+        "size": 78.6
+    },
     "Qwen3.5-27B-GGUF": {
         "checkpoint": "unsloth/Qwen3.5-27B-GGUF:Qwen3.5-27B-UD-Q4_K_XL.gguf",
         "mmproj": "mmproj-F16.gguf",
@@ -938,6 +977,17 @@
         ],
         "size": 22.4
     },
+    "Qwen3.6-35B-A3B-MTP-GGUF": {
+        "checkpoint": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+        "mmproj": "mmproj-F16.gguf",
+        "recipe": "llamacpp",
+        "suggested": true,
+        "labels": [
+            "tool-calling",
+            "mtp"
+        ],
+        "size": 22.9
+    },
     "Qwen3.6-27B-GGUF": {
         "checkpoint": "unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-UD-Q4_K_XL.gguf",
         "mmproj": "mmproj-F16.gguf",
@@ -948,6 +998,18 @@
             "tool-calling"
         ],
         "size": 17.6
+    },
+    "Qwen3.6-27B-MTP-GGUF": {
+        "checkpoint": "unsloth/Qwen3.6-27B-MTP-GGUF:Qwen3.6-27B-UD-Q4_K_XL.gguf",
+        "mmproj": "mmproj-F16.gguf",
+        "recipe": "llamacpp",
+        "suggested": true,
+        "labels": [
+            "tool-calling",
+            "mtp",
+            "hot"
+        ],
+        "size": 17.9
     },
     "Llama-4-Scout-17B-16E-Instruct-GGUF": {
         "checkpoint": "unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF:Q4_K_S",
@@ -1149,8 +1211,8 @@
         "recipe": "whispercpp",
         "suggested": true,
         "labels": [
-            "audio",
-            "transcription"
+            "transcription",
+            "realtime-transcription"
         ],
         "size": 0.075
     },
@@ -1162,8 +1224,8 @@
         "recipe": "whispercpp",
         "suggested": true,
         "labels": [
-            "audio",
-            "transcription"
+            "transcription",
+            "realtime-transcription"
         ],
         "size": 0.142
     },
@@ -1175,8 +1237,8 @@
         "recipe": "whispercpp",
         "suggested": true,
         "labels": [
-            "audio",
-            "transcription"
+            "transcription",
+            "realtime-transcription"
         ],
         "size": 0.466
     },
@@ -1188,8 +1250,8 @@
         "recipe": "whispercpp",
         "suggested": true,
         "labels": [
-            "audio",
-            "transcription"
+            "transcription",
+            "realtime-transcription"
         ],
         "size": 1.42
     },
@@ -1201,8 +1263,8 @@
         "recipe": "whispercpp",
         "suggested": true,
         "labels": [
-            "audio",
-            "transcription"
+            "transcription",
+            "realtime-transcription"
         ],
         "size": 2.87
     },
@@ -1214,8 +1276,8 @@
         "recipe": "whispercpp",
         "suggested": true,
         "labels": [
-            "audio",
             "transcription",
+            "realtime-transcription",
             "hot"
         ],
         "size": 1.55
@@ -1228,6 +1290,20 @@
             "image"
         ],
         "size": 5.2,
+        "image_defaults": {
+            "steps": 4,
+            "cfg_scale": 1.0,
+            "width": 512,
+            "height": 512
+        }
+    },
+    "SD-Turbo-GGUF": {
+        "checkpoint": "Green-Sky/SD-Turbo-GGUF:sd_turbo-f16-q8_0.gguf",
+        "recipe": "sd-cpp",
+        "labels": [
+            "image"
+        ],
+        "size": 2.0,
         "image_defaults": {
             "steps": 4,
             "cfg_scale": 1.0,
@@ -1414,8 +1490,7 @@
         "recipe": "kokoro",
         "suggested": true,
         "labels": [
-            "tts",
-            "speech"
+            "tts"
         ],
         "size": 0.34
     },
@@ -1424,7 +1499,7 @@
         "recipe": "sd-cpp",
         "suggested": true,
         "labels": [
-            "esrgan",
+            "upscaling",
             "image"
         ],
         "size": 0.064
@@ -1434,9 +1509,46 @@
         "recipe": "sd-cpp",
         "suggested": true,
         "labels": [
-            "esrgan",
+            "upscaling",
             "image"
         ],
         "size": 0.017
+    },
+    "Qwen3.5-0.8B-vLLM": {
+        "checkpoint": "Qwen/Qwen3.5-0.8B",
+        "recipe": "vllm",
+        "suggested": true,
+        "labels": [
+            "reasoning"
+        ],
+        "size": 1.6
+    },
+    "Qwen3.5-2B-vLLM": {
+        "checkpoint": "Qwen/Qwen3.5-2B",
+        "recipe": "vllm",
+        "suggested": true,
+        "labels": [
+            "reasoning"
+        ],
+        "size": 4.0
+    },
+    "Qwen3.5-4B-vLLM": {
+        "checkpoint": "Qwen/Qwen3.5-4B",
+        "recipe": "vllm",
+        "suggested": true,
+        "labels": [
+            "reasoning",
+            "hot"
+        ],
+        "size": 8.2
+    },
+    "Qwen3.5-9B-vLLM": {
+        "checkpoint": "Qwen/Qwen3.5-9B",
+        "recipe": "vllm",
+        "suggested": true,
+        "labels": [
+            "reasoning"
+        ],
+        "size": 18.6
     }
 }

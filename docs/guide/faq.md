@@ -34,7 +34,7 @@
    Yes, both Linux and macOS are supported!
 
    - **Linux**: Visit https://lemonade-server.ai/install_options.html#linux for installation instructions.
-   - **macOS (beta)**: A macOS installer (.pkg) is available for Apple Silicon Macs. Visit https://lemonade-server.ai/install_options.html#macos to download. macOS support uses the llama.cpp backend with Metal acceleration.
+   - **macOS**: A macOS installer (.pkg) is available for Apple Silicon Macs. Visit https://lemonade-server.ai/install_options.html#macos to download. macOS support uses the llama.cpp backend with Metal acceleration.
 
    Visit the [Supported Configurations](https://github.com/lemonade-sdk/lemonade?tab=readme-ov-file#supported-configurations) section to see the support matrix for CPU, GPU, and NPU.
 
@@ -182,6 +182,7 @@
    Yes! Lemonade supports multiple execution modes:
 
    - **AMD Ryzen 7000/8000/200 series**: GPU acceleration via llama.cpp + Vulkan backend
+   - **AMD Ryzen AI MAX+ (Strix Halo) on Linux**: in addition to the above, the experimental `vllm:rocm` backend is supported on gfx1151 (see [vLLM configuration](configuration/vllm.md))
    - **Systems with Radeon GPUs**: Yes
    - **Any x86 CPU**: Yes
    - **Intel/NVIDIA systems**: CPU inference, with GPU support via the llama.cpp + Vulkan backend

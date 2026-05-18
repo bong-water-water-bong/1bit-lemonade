@@ -132,10 +132,7 @@ Server::Server(std::shared_ptr<RuntimeConfig> config, const std::string& cache_d
     // Set global HttpClient timeout
     utils::HttpClient::set_default_timeout(config->global_timeout());
 
-    model_manager_ = std::make_unique<ModelManager>();
-
-    // Set extra models directory for GGUF discovery
-    model_manager_->set_extra_models_dir(config_->extra_models_dir());
+    model_manager_ = std::make_unique<ModelManager>(config_->extra_models_dir());
 
     backend_manager_ = std::make_unique<BackendManager>();
     BackendManager::set_global(backend_manager_.get());
@@ -164,6 +161,26 @@ Server::Server(std::shared_ptr<RuntimeConfig> config, const std::string& cache_d
         router_.get(),
         config_->host(),
         config_->websocket_port());
+
+    start_model_cache_warmup();
+}
+
+void Server::start_model_cache_warmup() {
+    if (model_cache_warmup_thread_.joinable()) {
+        return;
+    }
+
+    model_cache_warmup_thread_ = std::thread([this]() {
+        try {
+            LOG(DEBUG, "Server") << "Warming model list cache..." << std::endl;
+            model_manager_->get_supported_models();
+            LOG(DEBUG, "Server") << "Model list cache warmup complete" << std::endl;
+        } catch (const std::exception& e) {
+            LOG(WARNING, "Server") << "Model list cache warmup failed: " << e.what() << std::endl;
+        } catch (...) {
+            LOG(WARNING, "Server") << "Model list cache warmup failed with unknown error" << std::endl;
+        }
+    });
 }
 
 void Server::setup_http_servers() {
@@ -210,7 +227,12 @@ httplib::Server::HandlerResponse Server::authenticate_request(const httplib::Req
 
     // Internal endpoints are restricted to loopback regardless of API key
     if (is_internal_route) {
-        bool is_loopback = (req.remote_addr == "127.0.0.1" || req.remote_addr == "::1");
+        // ::ffff:127.0.0.1 is how an IPv6 socket reports an IPv4 loopback connection
+        // when bound without IPV6_V6ONLY (the default on macOS, and the configuration
+        // lemond uses to accept both IPv4 and IPv6 on the same port).
+        bool is_loopback = (req.remote_addr == "127.0.0.1" ||
+                            req.remote_addr == "::1" ||
+                            req.remote_addr == "::ffff:127.0.0.1");
         if (!is_loopback) {
             LOG(WARNING, "Server") << "Rejected internal request from non-loopback address: "
                         << req.remote_addr << " " << req.path << std::endl;
@@ -343,6 +365,30 @@ void Server::setup_routes(httplib::Server &web_server) {
     // Reranking
     register_post("reranking", [this](const httplib::Request& req, httplib::Response& res) {
         handle_reranking(req, res);
+    });
+
+    // Slots (llama.cpp backend information)
+    register_get("slots", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slots(req, res);
+    });
+
+    // Slots action endpoints (need to register for both versions with regex, with and without /api prefix)
+    web_server.Post(R"(/api/v0/slots/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slots_by_id(req, res);
+    });
+    web_server.Post(R"(/api/v1/slots/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slots_by_id(req, res);
+    });
+    web_server.Post(R"(/v0/slots/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slots_by_id(req, res);
+    });
+    web_server.Post(R"(/v1/slots/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_slots_by_id(req, res);
+    });
+
+    // Tokenize endpoint (llama.cpp specific)
+    register_post("tokenize", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_tokenize(req, res);
     });
 
     // Audio endpoints (OpenAI /v1/audio/* compatible)
@@ -905,6 +951,13 @@ void Server::run() {
     }
 
     while (true) {
+        // Check for shutdown signal from the main thread
+        if (shutdown_requested_.load()) {
+            LOG(INFO, "Server") << "Shutdown requested, stopping server..." << std::endl;
+            stop();
+            break;
+        }
+
         std::atomic<bool> listener_started(false);
         std::atomic<bool> listener_start_failed(false);
 
@@ -970,10 +1023,44 @@ void Server::run() {
                         << "or hostname that resolves to RFC1918 IPv4." << std::endl;
         }
 
-        if (http_v4_thread_.joinable())
-            http_v4_thread_.join();
-        if (http_v6_thread_.joinable())
-            http_v6_thread_.join();
+        // Wait for listener threads, but check periodically for shutdown or rebind signals.
+        // The threads are blocked in listen_after_bind(), which only returns when
+        // the server is stopped or an error occurs.
+        while ((http_v4_thread_.joinable() || http_v6_thread_.joinable()) &&
+               !shutdown_requested_.load() && !rebind_requested_.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        // If shutdown was requested while the server was running, stop it now
+        // to unblock the listener threads (they're stuck in listen_after_bind)
+        if (shutdown_requested_.load()) {
+            LOG(INFO, "Server") << "Shutdown requested, stopping server..." << std::endl;
+            stop();
+            // Join the threads (they should exit quickly after stop() is called)
+            if (http_v4_thread_.joinable())
+                http_v4_thread_.join();
+            if (http_v6_thread_.joinable())
+                http_v6_thread_.join();
+            break;  // Exit the main loop
+        }
+
+        // If rebind was requested, stop() has already been called by apply_config_side_effects().
+        // Just join the threads so they can be restarted with new settings.
+        if (rebind_requested_.load()) {
+            // Wait for threads to finish (stop() was already called)
+            if (http_v4_thread_.joinable())
+                http_v4_thread_.join();
+            if (http_v6_thread_.joinable())
+                http_v6_thread_.join();
+            // Continue to rebind logic below (don't break)
+        } else {
+            // Normal path: threads exited naturally (no shutdown, no rebind)
+            // Join the threads
+            if (http_v4_thread_.joinable())
+                http_v4_thread_.join();
+            if (http_v6_thread_.joinable())
+                http_v6_thread_.join();
+        }
 
         if (!listener_started && listener_start_failed) {
             if (rebind_requested_) {
@@ -1003,6 +1090,19 @@ void Server::run() {
     }
 }
 
+
+bool Server::should_shutdown() const {
+    return shutdown_requested_.load();
+}
+
+void Server::set_shutdown_requested(bool requested) {
+    shutdown_requested_.store(requested);
+}
+
+bool Server::is_running() const {
+    return running_;
+}
+
 void Server::stop() {
     if (running_) {
         LOG(INFO, "Server") << "Stopping HTTP server..." << std::endl;
@@ -1010,6 +1110,7 @@ void Server::stop() {
         http_server_v6_->stop();
         http_server_->stop();
         running_ = false;
+        shutdown_requested_ = false;  // Reset for potential future use
 
         // Stop WebSocket server
         if (websocket_server_) {
@@ -1028,10 +1129,10 @@ void Server::stop() {
         }
         LOG(INFO, "Server") << "Cleanup complete" << std::endl;
     }
-}
 
-bool Server::is_running() const {
-    return running_;
+    if (model_cache_warmup_thread_.joinable()) {
+        model_cache_warmup_thread_.join();
+    }
 }
 
 // Generates an actionable error message for model loading failures.
@@ -1094,7 +1195,7 @@ nlohmann::json Server::create_model_error(const std::string& requested_model, co
             message += ". ";
         }
 
-        message += "Use 'lemonade-server list' or GET /api/v1/models?show_all=true to see all available models.";
+        message += "Use 'lemonade list' or GET /api/v1/models?show_all=true to see all available models.";
 
         // Add FLM hint for -FLM model names when FLM is not ready
         if (requested_model.size() > 4 &&
@@ -1282,6 +1383,10 @@ nlohmann::json Server::model_info_to_json(const std::string& model_id, const Mod
         model_json["size"] = info.size;
     }
 
+    if (info.max_context_window > 0) {
+        model_json["max_context_window"] = info.max_context_window;
+    }
+
     // Add image_defaults if present (for sd-cpp models)
     if (info.image_defaults.has_defaults) {
         json img_def = {
@@ -1305,7 +1410,11 @@ void Server::handle_model_by_id(const httplib::Request& req, httplib::Response& 
 
     if (model_manager_->model_exists(model_id)) {
         auto info = model_manager_->get_model_info(model_id);
-        res.set_content(model_info_to_json(model_id, info).dump(), "application/json");
+        // Emit the wire-format id (bare for the precedence-winner, canonical-prefixed
+        // for shadowed sources), regardless of which form the client requested.
+        std::string canonical_cache_key = model_manager_->resolve_model_name(model_id);
+        std::string wire_id = model_manager_->get_public_model_name(canonical_cache_key);
+        res.set_content(model_info_to_json(wire_id, info).dump(), "application/json");
     } else {
         res.status = 404;
         auto error_response = create_model_error(model_id, "Model not found");
@@ -1768,6 +1877,143 @@ void Server::handle_reranking(const httplib::Request& req, httplib::Response& re
 
     } catch (const std::exception& e) {
         LOG(ERROR, "Server") << "ERROR in handle_reranking: " << e.what() << std::endl;
+        res.status = 500;
+        nlohmann::json error = {{"error", e.what()}};
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void Server::handle_slots(const httplib::Request& req, httplib::Response& res) {
+    try {
+        // Slots endpoint doesn't require a model parameter since it queries server state
+        // But we still need a model to be loaded to have an active server to query
+        if (!router_->is_model_loaded()) {
+            LOG(ERROR, "Server") << "No model loaded for slots query" << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"No model loaded for slots query\"}", "application/json");
+            return;
+        }
+
+        // Call router's get_slots method
+        auto response = router_->get_slots();
+        res.set_content(response.dump(), "application/json");
+
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_slots: " << e.what() << std::endl;
+        res.status = 500;
+        nlohmann::json error = {{"error", e.what()}};
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void Server::handle_slots_by_id(const httplib::Request& req, httplib::Response& res) {
+    try {
+        // Extract slot ID from path parameter
+        std::string slot_id_str = req.matches[1];
+        int slot_id;
+        try {
+            slot_id = std::stoi(slot_id_str);
+        } catch (const std::exception& e) {
+            LOG(ERROR, "Server") << "Invalid slot ID: " << slot_id_str << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid slot ID: " + slot_id_str + "\"}", "application/json");
+            return;
+        }
+
+        // Check for action query parameter
+        auto action_param = req.get_param_value("action");
+        if (action_param.empty()) {
+            LOG(ERROR, "Server") << "Missing action parameter for slots POST endpoint" << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"POST /api/v1/slots/{id} requires action query parameter (e.g., ?action=erase)\"}", "application/json");
+            return;
+        }
+
+        // Validate known actions for specific slots (can be extended as needed)
+        if (action_param != "erase" && action_param != "save" && action_param != "restore") {
+            LOG(ERROR, "Server") << "Unknown action parameter: " << action_param << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"Unknown action: " + action_param + ". Supported actions: erase, save, restore\"}", "application/json");
+            return;
+        }
+
+        // Slots actions don't require a model parameter since they operate on server state
+        // But we still need a model to be loaded to have an active server to operate on
+        if (!router_->is_model_loaded()) {
+            LOG(ERROR, "Server") << "No model loaded for slots " << action_param << " operation" << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"No model loaded for slots " + action_param + " operation\"}", "application/json");
+            return;
+        }
+
+        // Parse request body as JSON (use empty object if body is empty)
+        json request_body;
+        if (!req.body.empty()) {
+            try {
+                request_body = json::parse(req.body);
+            } catch (const std::exception& e) {
+                LOG(ERROR, "Server") << "Failed to parse request body: " << e.what() << std::endl;
+                res.status = 400;
+                res.set_content("{\"error\": \"Invalid JSON in request body\"}", "application/json");
+                return;
+            }
+        } else {
+            request_body = json::object();
+        }
+
+        // Call router's slots_action method with slot ID, action, and request body
+        auto response = router_->slots_action(slot_id, action_param, request_body);
+        res.set_content(response.dump(), "application/json");
+
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_slots_by_id: " << e.what() << std::endl;
+        res.status = 500;
+        nlohmann::json error = {{"error", e.what()}};
+        res.set_content(error.dump(), "application/json");
+    }
+}
+
+void Server::handle_tokenize(const httplib::Request& req, httplib::Response& res) {
+    try {
+        LOG(INFO, "Server") << "POST /api/v1/tokenize" << std::endl;
+
+        // Parse request body as JSON (use empty object if body is empty)
+        json request_body;
+        if (!req.body.empty()) {
+            try {
+                request_body = json::parse(req.body);
+            } catch (const std::exception& e) {
+                LOG(ERROR, "Server") << "Failed to parse request body: " << e.what() << std::endl;
+                res.status = 400;
+                res.set_content("{\"error\": \"Invalid JSON in request body\"}", "application/json");
+                return;
+            }
+        } else {
+            request_body = json::object();
+        }
+
+        // Tokenize endpoint requires at least a valid "content" entry in the body
+        if (!request_body.contains("content") || !request_body["content"].is_string()) {
+            LOG(ERROR, "Server") << "Tokenization failed: 'content' parameter is missing" << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"'content' parameter is required\"}", "application/json");
+            return;
+        }
+
+        // Tokenization requires a model to be loaded
+        if (!router_->is_model_loaded()) {
+            LOG(ERROR, "Server") << "No model loaded for tokenization" << std::endl;
+            res.status = 400;
+            res.set_content("{\"error\": \"No model loaded for tokenization\"}", "application/json");
+            return;
+        }
+
+        // Forward request to router
+        auto response = router_->tokenize(request_body);
+        res.set_content(response.dump(), "application/json");
+
+    } catch (const std::exception& e) {
+        LOG(ERROR, "Server") << "ERROR in handle_tokenize: " << e.what() << std::endl;
         res.status = 500;
         nlohmann::json error = {{"error", e.what()}};
         res.set_content(error.dump(), "application/json");
@@ -2370,7 +2616,7 @@ void Server::handle_image_upscale(const httplib::Request& req, httplib::Response
 
             // Honor explicit config first (e.g. sdcpp.backend = "rocm").
             // "auto" in config.json is mapped to "" by recipe_options().
-            auto recipe_opts = config_->recipe_options();
+            auto recipe_opts = config_->recipe_options("");
             if (recipe_opts.contains("sd-cpp_backend") &&
                 recipe_opts["sd-cpp_backend"].is_string()) {
                 backend = recipe_opts["sd-cpp_backend"].get<std::string>();
@@ -2428,9 +2674,9 @@ void Server::handle_image_upscale(const httplib::Request& req, httplib::Response
 
         std::string resolved_backend = backend;
         if (backend == "rocm") {
-            std::string channel = "preview";
+            std::string channel = "stable";
             if (config_) {
-                channel = config_->rocm_channel();
+                channel = config_->rocm_channel_for_recipe("sd-cpp");
             }
             resolved_backend = "rocm-" + channel;
         }
@@ -2438,13 +2684,6 @@ void Server::handle_image_upscale(const httplib::Request& req, httplib::Response
         std::string lib_path = cli_dir.string();
 
         if (resolved_backend == "rocm-stable") {
-            std::string runtime_dir = lemon::backends::BackendUtils::get_install_directory(
-                "rocm-stable-runtime", ""
-            );
-            if (std::filesystem::exists(runtime_dir)) {
-                lib_path = runtime_dir + ":" + lib_path;
-            }
-        } else if (resolved_backend == "rocm-preview") {
             std::string rocm_arch = SystemInfo::get_rocm_arch();
             if (!rocm_arch.empty()) {
                 std::string therock_lib = lemon::backends::BackendUtils::get_therock_lib_path(rocm_arch);
@@ -2460,16 +2699,13 @@ void Server::handle_image_upscale(const httplib::Request& req, httplib::Response
         }
         env_vars.push_back({"LD_LIBRARY_PATH", lib_path});
 #else
-        if (resolved_backend == "rocm-stable" || resolved_backend == "rocm-preview") {
+        if (resolved_backend == "rocm-stable") {
             std::string new_path = cli_dir.string();
-
-            if (resolved_backend == "rocm-preview") {
-                std::string rocm_arch = SystemInfo::get_rocm_arch();
-                if (!rocm_arch.empty()) {
-                    std::string therock_bin = lemon::backends::BackendUtils::get_therock_lib_path(rocm_arch);
-                    if (!therock_bin.empty()) {
-                        new_path = therock_bin + ";" + new_path;
-                    }
+            std::string rocm_arch = SystemInfo::get_rocm_arch();
+            if (!rocm_arch.empty()) {
+                std::string therock_bin = lemon::backends::BackendUtils::get_therock_lib_path(rocm_arch);
+                if (!therock_bin.empty()) {
+                    new_path = therock_bin + ";" + new_path;
                 }
             }
 
@@ -2612,7 +2848,21 @@ void Server::handle_pull(const httplib::Request& req, httplib::Response& res) {
             LOG(INFO, "Server") << "   recipe: " << recipe << std::endl;
         }
 
-        // Validate: if checkpoint or recipe are provided, model name must have "user." prefix
+        // Reject reserved prefixes — extra.* / builtin.* cannot be created via
+        // /pull, and user.extra.* / user.builtin.* are also rejected because
+        // their bare-name part ("extra.X" / "builtin.X") would otherwise hijack
+        // the corresponding canonical alias slot. Then enforce the existing rule
+        // that explicit checkpoint/recipe requires the user.* prefix.
+        if (lemon::is_reserved_registration_name(model_name)) {
+            res.status = 400;
+            nlohmann::json error = {{"error",
+                "Model names with 'extra.' / 'builtin.' prefixes are reserved, "
+                "including as bare-name parts of a 'user.' alias. "
+                "Use 'user.<name>' for registration where <name> does not begin "
+                "with 'extra.' or 'builtin.'. Received: " + model_name}};
+            res.set_content(error.dump(), "application/json");
+            return;
+        }
         if (!checkpoint.empty() || !recipe.empty()) {
             if (model_name.substr(0, 5) != "user.") {
                 res.status = 400;
@@ -3778,6 +4028,9 @@ void Server::apply_config_side_effects(const json& applied_changes) {
             model_manager_->invalidate_models_cache();
         } else if (value.is_object()) {
             // Nested backend section change (llamacpp / whispercpp / sdcpp / ryzenai / kokoro).
+            // Recipe defaults (e.g. default_backend) are derived from these settings, so
+            // drop the memoized recipes so the next /system-info recomputes them.
+            SystemInfoCache::invalidate_recipes();
             // Look for *_bin sub-keys and trigger a hot-swap of the affected backend.
             for (auto& [sub_key, sub_value] : value.items()) {
                 if (sub_key.size() >= 4
