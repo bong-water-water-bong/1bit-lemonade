@@ -24,6 +24,13 @@ runs:
         VERSION=$(git describe --tags --always)
         # Strip leading 'v' for Debian version compatibility
         DEB_VERSION=$(echo "${VERSION}" | sed 's/^v//')
+        # Debian versions must start with a digit. When git describe falls back
+        # to a bare SHA (no reachable tag), prefix with "0+" so dpkg-buildpackage
+        # accepts it, e.g. "0+bb4ad3c" instead of "bb4ad3c".
+        case "$DEB_VERSION" in
+          [0-9]*) ;;
+          *) DEB_VERSION="0+${DEB_VERSION}" ;;
+        esac
         echo "version=${DEB_VERSION}" >> $GITHUB_OUTPUT
 
     - name: Create Debian packaging metadata

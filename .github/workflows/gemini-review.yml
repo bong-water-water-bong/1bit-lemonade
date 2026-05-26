@@ -35,7 +35,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - <<'PYEOF'
-          import os, json, urllib.request, pathlib, subprocess
+          import os, json, urllib.request, urllib.error, pathlib, subprocess
 
           api_key = os.environ["GEMINI_API_KEY"]
           diff = pathlib.Path("/tmp/pr.diff").read_text(errors="replace")
@@ -60,8 +60,14 @@ jobs:
           req = urllib.request.Request(
               url, data=payload, headers={"Content-Type": "application/json"}
           )
-          with urllib.request.urlopen(req, timeout=60) as r:
-              data = json.load(r)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  data = json.load(r)
+          except urllib.error.HTTPError as e:
+              body = e.read().decode(errors="replace")
+              print(f"Gemini API HTTP {e.code} — response body:")
+              print(body)
+              raise
 
           review = data["candidates"][0]["content"]["parts"][0]["text"]
 

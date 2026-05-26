@@ -17,6 +17,7 @@
   "sd-cpp": {
     "cpu": "master-616-cde20d5",
     "rocm-stable": "master-616-cde20d5",
+    "vulkan": "master-616-cde20d5",
     "metal": "master-616-cde20d5"
   },
   "therock": {

@@ -173,6 +173,12 @@ static const std::vector<RecipeBackendDef> RECIPE_DEFS = {
         }},
     }},
 
+    // stable-diffusion.cpp - Vulkan backend (Windows/Linux x86_64)
+    {"sd-cpp", "vulkan", {"windows", "linux"}, {
+        {"cpu", {"x86_64"}},
+        {"amd_gpu", {}},
+    }},
+
     // stable-diffusion.cpp - CPU backend (Windows/Linux x86_64)
     {"sd-cpp", "cpu", {"windows", "linux"}, {
         {"cpu", {"x86_64"}},
@@ -918,7 +924,7 @@ json SystemInfo::build_recipes_info(const json& devices) {
             }
         }
 
-        bool supported = !unique_matching.empty();
+        bool supported = missing_devices.empty() && wrong_family.empty();
         std::string install_error;
         bool available = is_recipe_installed(def.recipe, def.backend, install_error);
 
