@@ -93,6 +93,14 @@ InstallParams SDServer::get_install_params(const std::string& backend, const std
 #if defined(__APPLE__)
         params.filename = "sd-" + short_version + "-bin-Darwin-arm64-metal.zip";
 #endif
+    } else if (resolved_backend == "vulkan") {
+#ifdef _WIN32
+        params.filename = "sd-" + short_version + "-bin-win-vulkan-x64.zip";
+#elif defined(__linux__)
+        params.filename = "sd-" + short_version + "-bin-Linux-Ubuntu-24.04-x86_64-vulkan.zip";
+#else
+        throw std::runtime_error("Vulkan sd.cpp only supported on Windows and Linux");
+#endif
     } else if (is_rocm_backend(resolved_backend)) {
         std::string target_arch = SystemInfo::get_rocm_arch();
 
