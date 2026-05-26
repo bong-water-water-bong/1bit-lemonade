@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -13,6 +17,7 @@ jobs:
     name: Gemini Flash PR review
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    if: secrets.GEMINI_API_KEY != ''
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
@@ -25,6 +30,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # SECURITY: This workflow sends the PR diff to Google's Gemini API.
           # Cap at 50 KB — Gemini Flash has a 1 M-token context but PR diffs
           # this large are rarely useful in a review comment.
           gh pr diff "$PR_NUMBER" --repo "$REPO" | head -c 51200 > /tmp/pr.diff
@@ -37,8 +43,20 @@ jobs:
           python3 - <<'PYEOF'
           import os, json, urllib.request, pathlib, subprocess
 
-          api_key = os.environ["GEMINI_API_KEY"]
-          diff = pathlib.Path("/tmp/pr.diff").read_text(errors="replace")
+          api_key = os.environ.get("GEMINI_API_KEY")
+          if not api_key:
+              print("GEMINI_API_KEY is missing, skipping review.")
+              exit(0)
+
+          diff_path = pathlib.Path("/tmp/pr.diff")
+          if not diff_path.exists():
+              print("Diff file missing, skipping review.")
+              exit(0)
+          
+          diff = diff_path.read_text(errors="replace")
+          if not diff.strip():
+              print("Empty diff, skipping review.")
+              exit(0)
 
           prompt = (
               "You are a careful code reviewer. Review the following pull request diff "
@@ -60,16 +78,25 @@ jobs:
           req = urllib.request.Request(
               url, data=payload, headers={"Content-Type": "application/json"}
           )
-          with urllib.request.urlopen(req, timeout=60) as r:
-              data = json.load(r)
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  data = json.load(r)
+          except Exception as e:
+              print(f"Error calling Gemini API: {e}")
+              exit(0)
 
-          review = data["candidates"][0]["content"]["parts"][0]["text"]
+          try:
+              review = data["candidates"][0]["content"]["parts"][0]["text"]
+          except (KeyError, IndexError):
+              print(f"Unexpected API response structure: {data}")
+              exit(0)
 
           body = (
               "### Gemini Flash review\n\n"
               + review
               + "\n\n---\n"
-              "*Automated review via gemini-review workflow*"
+              "*Automated review via gemini-review workflow*\n"
+              "*Note: This workflow sends PR diffs to Google Gemini API.*"
           )
 
           pr = os.environ["PR_NUMBER"]
