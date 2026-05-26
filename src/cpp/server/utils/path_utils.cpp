@@ -430,7 +430,10 @@ std::string get_runtime_dir() {
     }
     // Fallback: /tmp for CI runners and systems without XDG session support
     // Append UID to prevent predictable-path attacks on multi-user systems
-    return "/tmp/lemonade-runtime-" + std::to_string(getuid());
+    std::string fallback = "/tmp/lemonade-runtime-" + std::to_string(getuid());
+    std::error_code ec;
+    fs::create_directory(fallback, ec);
+    return fallback;
 #endif
 }
 

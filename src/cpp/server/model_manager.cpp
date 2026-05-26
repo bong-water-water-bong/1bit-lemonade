@@ -537,15 +537,21 @@ static GGUFFiles identify_gguf_models(
     const std::string& variant,
     const std::vector<std::string>& repo_files
 ) {
-    // Reject path traversal characters in variant to prevent escaping repo scope
+    // Reject path traversal in variant to prevent escaping repo scope.
+    // Allow "/" as rfilename subdirectory separator (e.g. split_files/vae/ae.safetensors).
+    // Block ".." (parent traversal) and absolute paths (leading / or \).
     if (!variant.empty()) {
-        for (const char* dangerous : {"..", "/", "\\"}) {
-            if (variant.find(dangerous) != std::string::npos) {
-                throw std::runtime_error(
-                    "Variant contains unsafe path characters: \"" + variant + "\". "
-                    "Variants must not contain directory separators or parent references."
-                );
-            }
+        if (variant.find("..") != std::string::npos) {
+            throw std::runtime_error(
+                "Variant contains unsafe characters: \"" + variant + "\". "
+                "Variants must not contain parent directory references."
+            );
+        }
+        if (!variant.empty() && (variant[0] == '/' || variant[0] == '\\')) {
+            throw std::runtime_error(
+                "Variant is an absolute path: \"" + variant + "\". "
+                "Variants must be relative paths within the repository."
+            );
         }
     }
 
@@ -994,12 +1000,15 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
     std::string repo_id = checkpoint_repo_id;
     std::string variant = checkpoint_to_variant(checkpoint);
 
-    // Reject path traversal characters in extracted variant
+    // Reject path traversal in extracted variant.
+    // Allow "/" as rfilename subdirectory separator (e.g. split_files/vae/ae.safetensors).
+    // Block ".." (parent traversal) and absolute paths (leading / or \).
     if (!variant.empty()) {
-        for (const char* dangerous : {"..", "/", "\\"}) {
-            if (variant.find(dangerous) != std::string::npos) {
-                return "";
-            }
+        if (variant.find("..") != std::string::npos) {
+            return "";
+        }
+        if (variant[0] == '/' || variant[0] == '\\') {
+            return "";
         }
     }
 
