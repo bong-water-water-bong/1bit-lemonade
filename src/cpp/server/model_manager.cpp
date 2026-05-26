@@ -395,6 +395,7 @@ static bool is_repo_shared(const std::string& repo_id,
                            const std::map<std::string, ModelInfo>& cache) {
     for (const auto& [name, info] : cache) {
         if (name == exclude_model) continue;
+        if (!info.downloaded) continue;
         for (const auto& [type, cp] : info.checkpoints) {
             if (checkpoint_to_repo_id(cp) == repo_id) {
                 return true;
@@ -1067,6 +1068,24 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
 
         // Return first .bin file as fallback (only when no variant specified)
         return all_bin_files[0];
+    }
+
+    // Some multi-repo registrations use exact non-GGUF checkpoint files as
+    // dependencies, for example split_files/vae/ae.safetensors. Resolve those
+    // before the llamacpp GGUF-only branch so delete can clean them up.
+    if (!variant.empty() &&
+        !ends_with_ignore_case(variant, ".gguf") &&
+        !ends_with_ignore_case(variant, ".bin")) {
+        if (safe_exists(model_cache_path_fs)) {
+            for (const auto& entry : fs::recursive_directory_iterator(model_cache_path_fs, safe_dir_options)) {
+                if (!entry.is_directory()) continue;
+
+                fs::path variant_path = entry.path() / path_from_utf8(variant);
+                if (safe_exists(variant_path)) {
+                    return path_to_utf8(variant_path);
+                }
+            }
+        }
     }
 
     // For llamacpp, find the GGUF file with advanced sharded model support
@@ -3329,9 +3348,32 @@ void ModelManager::delete_model(const std::string& model_name) {
 
     // Use resolved_path to find the model directory to delete
     if (info.resolved_path().empty()) {
-        // Model exists in registry but has no downloaded files
-        // Just remove from user_models.json and cache
-        LOG(INFO, "ModelManager") << "Model not downloaded, removing from registry only" << std::endl;
+        if (info.downloaded) {
+            LOG(INFO, "ModelManager")
+                << "Downloaded model has no resolved path, cleaning checkpoint repos by metadata"
+                << std::endl;
+
+            std::set<std::string> repos_to_cleanup;
+            for (const auto& [type, checkpoint] : info.checkpoints) {
+                if (type == "npu_cache") continue;
+                std::string repo = checkpoint_to_repo_id(checkpoint);
+                if (!repo.empty() && !is_repo_shared(repo, canonical_model_name, models_cache_)) {
+                    repos_to_cleanup.insert(repo);
+                }
+            }
+
+            for (const auto& repo : repos_to_cleanup) {
+                fs::path repo_cache_path =
+                    path_from_utf8(get_hf_cache_dir() + "/" + repo_id_to_cache_dir_name(repo));
+                if (fs::exists(repo_cache_path)) {
+                    LOG(INFO, "ModelManager") << "Removing checkpoint repo directory: "
+                                              << path_to_utf8(repo_cache_path) << std::endl;
+                    fs::remove_all(repo_cache_path);
+                }
+            }
+        } else {
+            LOG(INFO, "ModelManager") << "Model not downloaded, removing from registry only" << std::endl;
+        }
 
         if (is_user_model_name(canonical_model_name)) {
             json updated_user_models = user_models_;
