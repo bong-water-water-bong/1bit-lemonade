@@ -924,7 +924,7 @@ json SystemInfo::build_recipes_info(const json& devices) {
             }
         }
 
-        bool supported = !unique_matching.empty();
+        bool supported = missing_devices.empty() && wrong_family.empty();
         std::string install_error;
         bool available = is_recipe_installed(def.recipe, def.backend, install_error);
 
