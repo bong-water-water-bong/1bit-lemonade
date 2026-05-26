@@ -367,7 +367,7 @@ std::string default_hf_cache_dir() {
     if (!home.empty()) {
         return home + "/.cache/huggingface/hub";
     }
-    return "/tmp/.cache/huggingface/hub";
+    return "/tmp/.cache/huggingface/hub-" + std::to_string(getuid());
 #endif
 }
 
@@ -429,7 +429,8 @@ std::string get_runtime_dir() {
         }
     }
     // Fallback: /tmp for CI runners and systems without XDG session support
-    return "/tmp";
+    // Append UID to prevent predictable-path attacks on multi-user systems
+    return "/tmp/lemonade-runtime-" + std::to_string(getuid());
 #endif
 }
 

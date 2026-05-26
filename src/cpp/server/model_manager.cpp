@@ -537,6 +537,18 @@ static GGUFFiles identify_gguf_models(
     const std::string& variant,
     const std::vector<std::string>& repo_files
 ) {
+    // Reject path traversal characters in variant to prevent escaping repo scope
+    if (!variant.empty()) {
+        for (const char* dangerous : {"..", "/", "\\"}) {
+            if (variant.find(dangerous) != std::string::npos) {
+                throw std::runtime_error(
+                    "Variant contains unsafe path characters: \"" + variant + "\". "
+                    "Variants must not contain directory separators or parent references."
+                );
+            }
+        }
+    }
+
     const std::string hint = R"(
     The CHECKPOINT:VARIANT scheme is used to specify model files in Hugging Face repositories.
 
@@ -982,6 +994,15 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
     std::string repo_id = checkpoint_repo_id;
     std::string variant = checkpoint_to_variant(checkpoint);
 
+    // Reject path traversal characters in extracted variant
+    if (!variant.empty()) {
+        for (const char* dangerous : {"..", "/", "\\"}) {
+            if (variant.find(dangerous) != std::string::npos) {
+                return "";
+            }
+        }
+    }
+
     std::string model_cache_path = hf_cache + "/" + repo_id_to_cache_dir_name(repo_id);
     fs::path model_cache_path_fs = path_from_utf8(model_cache_path);
 
@@ -994,7 +1015,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
                 }
             }
         }
-        return model_cache_path;  // Return directory even if genai_config not found
+        return "";  // genai_config.json not found — do not fall back to bare directory
     }
 
     // For kokoro models, look for index.json directory
@@ -1007,14 +1028,14 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
             }
         }
 
-        return model_cache_path;  // Return directory even if index not found
+        return "";  // index.json not found — do not fall back to bare directory
     }
 
     // For whispercpp, find the .bin model file
     if (info.recipe == "whispercpp" && variant.empty()) {
         // No variant specified - use fallback logic to find any .bin file
         if (!safe_exists(model_cache_path_fs)) {
-            return model_cache_path;  // Return directory path even if not found
+            return "";  // Cache directory does not exist — do not fall back
         }
 
         // Collect all .bin files
@@ -1029,7 +1050,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         }
 
         if (all_bin_files.empty()) {
-            return model_cache_path;  // Return directory if no .bin found
+            return "";  // No .bin file found — do not fall back to bare directory
         }
 
         // Sort files for consistent ordering
@@ -1042,7 +1063,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
     // For llamacpp, find the GGUF file with advanced sharded model support
     if (info.recipe == "llamacpp" && type == "main") {
         if (!safe_exists(model_cache_path_fs)) {
-            return model_cache_path;  // Return directory path even if not found
+            return "";  // Cache directory does not exist — do not fall back
         }
 
         // Collect all GGUF files (exclude mmproj files)
@@ -1060,7 +1081,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         }
 
         if (all_gguf_files.empty()) {
-            return model_cache_path;  // Return directory if no GGUF found
+            return "";  // No GGUF found — do not fall back to bare directory
         }
 
         // Sort files for consistent ordering (important for sharded models)
@@ -1176,8 +1197,8 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         return "";
     }
 
-    // Fallback: return directory path
-    return model_cache_path;
+    // No resolver matched — do not fall back to bare directory path
+    return "";
 }
 
 void ModelManager::resolve_all_model_paths(ModelInfo& info) {
