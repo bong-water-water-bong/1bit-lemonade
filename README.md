@@ -25,6 +25,11 @@
   <a href="https://discord.gg/5xXzkMu8Zk">Discord</a>
 </h3>
 
+**→ [Project Wiki](docs/wiki/README.md)** — architecture, decisions, gotchas, and agent onboarding.
+The wiki is stored in `docs/wiki/`; read it before changing the core
+runtime flow, and update the relevant wiki page whenever a change alters
+architecture, API behavior, agent handoff, or system decisions.
+
 Lemonade is the local AI server that gives you the same capabilities as cloud APIs, except 100% free and private. Use the latest models for chat, coding, speech, and image generation on your own NPU and GPU.
 
 Lemonade comes in two flavors:
@@ -133,7 +138,7 @@ Lemonade supports multiple inference engines for LLM, speech, TTS, and image gen
   </thead>
   <tbody>
     <tr>
-      <td rowspan="8"><strong>Text generation</strong></td>
+      <td rowspan="11"><strong>Text generation</strong></td>
       <td rowspan="5"><code>llamacpp</code></td>
       <td><code>vulkan</code></td>
       <td><code>x86_64</code> CPU, AMD iGPU, AMD dGPU</td>
@@ -158,6 +163,22 @@ Lemonade supports multiple inference engines for LLM, speech, TTS, and image gen
       <td><code>system</code></td>
       <td><code>x86_64</code> CPU, GPU</td>
       <td>Linux</td>
+    </tr>
+    <tr>
+      <td rowspan="3"><code>lemon-mlx</code></td>
+      <td><code>metal</code></td>
+      <td>Apple Silicon GPU</td>
+      <td>macOS (beta)</td>
+    </tr>
+    <tr>
+      <td><code>rocm</code></td>
+      <td>Supported AMD ROCm iGPU/dGPU families* via the experimental lemon-mlx-engine ROCm build, not official Apple MLX ROCm support</td>
+      <td>Linux</td>
+    </tr>
+    <tr>
+      <td><code>cpu</code></td>
+      <td>x86_64 CPU on Linux; Apple Silicon (arm64) on macOS</td>
+      <td>Linux x86_64, macOS arm64 (beta)</td>
     </tr>
     <tr>
       <td><code>flm</code></td>
@@ -262,7 +283,7 @@ lemonade backends
 | Native multi-modal tool calling |                              | vLLM backend            |
 | More whisper.cpp backends |                              | Port app to Tauri      |
 | More SD.cpp backends      |                              | Embeddable binary release |
-| MLX support               |                              | Image generation       |
+|                           |                              | MLX support            |
 |                           |                              | Speech-to-text         |
 |                           |                              | Text-to-speech         |
 |                           |                              | Apps marketplace       |
