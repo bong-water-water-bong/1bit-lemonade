@@ -395,6 +395,7 @@ static bool is_repo_shared(const std::string& repo_id,
                            const std::map<std::string, ModelInfo>& cache) {
     for (const auto& [name, info] : cache) {
         if (name == exclude_model) continue;
+        if (!info.downloaded) continue;
         for (const auto& [type, cp] : info.checkpoints) {
             if (checkpoint_to_repo_id(cp) == repo_id) {
                 return true;
@@ -537,6 +538,24 @@ static GGUFFiles identify_gguf_models(
     const std::string& variant,
     const std::vector<std::string>& repo_files
 ) {
+    // Reject path traversal in variant to prevent escaping repo scope.
+    // Allow "/" as rfilename subdirectory separator (e.g. split_files/vae/ae.safetensors).
+    // Block ".." (parent traversal) and absolute paths (leading / or \).
+    if (!variant.empty()) {
+        if (variant.find("..") != std::string::npos) {
+            throw std::runtime_error(
+                "Variant contains unsafe characters: \"" + variant + "\". "
+                "Variants must not contain parent directory references."
+            );
+        }
+        if (!variant.empty() && (variant[0] == '/' || variant[0] == '\\')) {
+            throw std::runtime_error(
+                "Variant is an absolute path: \"" + variant + "\". "
+                "Variants must be relative paths within the repository."
+            );
+        }
+    }
+
     const std::string hint = R"(
     The CHECKPOINT:VARIANT scheme is used to specify model files in Hugging Face repositories.
 
@@ -982,6 +1001,18 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
     std::string repo_id = checkpoint_repo_id;
     std::string variant = checkpoint_to_variant(checkpoint);
 
+    // Reject path traversal in extracted variant.
+    // Allow "/" as rfilename subdirectory separator (e.g. split_files/vae/ae.safetensors).
+    // Block ".." (parent traversal) and absolute paths (leading / or \).
+    if (!variant.empty()) {
+        if (variant.find("..") != std::string::npos) {
+            return "";
+        }
+        if (variant[0] == '/' || variant[0] == '\\') {
+            return "";
+        }
+    }
+
     std::string model_cache_path = hf_cache + "/" + repo_id_to_cache_dir_name(repo_id);
     fs::path model_cache_path_fs = path_from_utf8(model_cache_path);
 
@@ -994,7 +1025,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
                 }
             }
         }
-        return model_cache_path;  // Return directory even if genai_config not found
+        return "";  // genai_config.json not found — do not fall back to bare directory
     }
 
     // For kokoro models, look for index.json directory
@@ -1007,14 +1038,14 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
             }
         }
 
-        return model_cache_path;  // Return directory even if index not found
+        return "";  // index.json not found — do not fall back to bare directory
     }
 
     // For whispercpp, find the .bin model file
     if (info.recipe == "whispercpp" && variant.empty()) {
         // No variant specified - use fallback logic to find any .bin file
         if (!safe_exists(model_cache_path_fs)) {
-            return model_cache_path;  // Return directory path even if not found
+            return "";  // Cache directory does not exist — do not fall back
         }
 
         // Collect all .bin files
@@ -1029,7 +1060,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         }
 
         if (all_bin_files.empty()) {
-            return model_cache_path;  // Return directory if no .bin found
+            return "";  // No .bin file found — do not fall back to bare directory
         }
 
         // Sort files for consistent ordering
@@ -1039,10 +1070,28 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         return all_bin_files[0];
     }
 
+    // Some multi-repo registrations use exact non-GGUF checkpoint files as
+    // dependencies, for example split_files/vae/ae.safetensors. Resolve those
+    // before the llamacpp GGUF-only branch so delete can clean them up.
+    if (!variant.empty() &&
+        !ends_with_ignore_case(variant, ".gguf") &&
+        !ends_with_ignore_case(variant, ".bin")) {
+        if (safe_exists(model_cache_path_fs)) {
+            for (const auto& entry : fs::recursive_directory_iterator(model_cache_path_fs, safe_dir_options)) {
+                if (!entry.is_directory()) continue;
+
+                fs::path variant_path = entry.path() / path_from_utf8(variant);
+                if (safe_exists(variant_path)) {
+                    return path_to_utf8(variant_path);
+                }
+            }
+        }
+    }
+
     // For llamacpp, find the GGUF file with advanced sharded model support
     if (info.recipe == "llamacpp" && type == "main") {
         if (!safe_exists(model_cache_path_fs)) {
-            return model_cache_path;  // Return directory path even if not found
+            return "";  // Cache directory does not exist — do not fall back
         }
 
         // Collect all GGUF files (exclude mmproj files)
@@ -1060,7 +1109,7 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         }
 
         if (all_gguf_files.empty()) {
-            return model_cache_path;  // Return directory if no GGUF found
+            return "";  // No GGUF found — do not fall back to bare directory
         }
 
         // Sort files for consistent ordering (important for sharded models)
@@ -1176,8 +1225,8 @@ std::string ModelManager::resolve_model_path(const ModelInfo& info, const std::s
         return "";
     }
 
-    // Fallback: return directory path
-    return model_cache_path;
+    // No resolver matched — do not fall back to bare directory path
+    return "";
 }
 
 void ModelManager::resolve_all_model_paths(ModelInfo& info) {
@@ -3299,9 +3348,32 @@ void ModelManager::delete_model(const std::string& model_name) {
 
     // Use resolved_path to find the model directory to delete
     if (info.resolved_path().empty()) {
-        // Model exists in registry but has no downloaded files
-        // Just remove from user_models.json and cache
-        LOG(INFO, "ModelManager") << "Model not downloaded, removing from registry only" << std::endl;
+        if (info.downloaded) {
+            LOG(INFO, "ModelManager")
+                << "Downloaded model has no resolved path, cleaning checkpoint repos by metadata"
+                << std::endl;
+
+            std::set<std::string> repos_to_cleanup;
+            for (const auto& [type, checkpoint] : info.checkpoints) {
+                if (type == "npu_cache") continue;
+                std::string repo = checkpoint_to_repo_id(checkpoint);
+                if (!repo.empty() && !is_repo_shared(repo, canonical_model_name, models_cache_)) {
+                    repos_to_cleanup.insert(repo);
+                }
+            }
+
+            for (const auto& repo : repos_to_cleanup) {
+                fs::path repo_cache_path =
+                    path_from_utf8(get_hf_cache_dir() + "/" + repo_id_to_cache_dir_name(repo));
+                if (fs::exists(repo_cache_path)) {
+                    LOG(INFO, "ModelManager") << "Removing checkpoint repo directory: "
+                                              << path_to_utf8(repo_cache_path) << std::endl;
+                    fs::remove_all(repo_cache_path);
+                }
+            }
+        } else {
+            LOG(INFO, "ModelManager") << "Model not downloaded, removing from registry only" << std::endl;
+        }
 
         if (is_user_model_name(canonical_model_name)) {
             json updated_user_models = user_models_;

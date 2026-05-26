@@ -367,7 +367,13 @@ std::string default_hf_cache_dir() {
     if (!home.empty()) {
         return home + "/.cache/huggingface/hub";
     }
-    return "/tmp/.cache/huggingface/hub";
+    // Platform-resolved temp directory with UID hardening
+    std::error_code ec;
+    fs::path tmp = fs::temp_directory_path(ec);
+    if (ec) {
+        tmp = "/tmp";
+    }
+    return (tmp / (".cache/huggingface/hub-" + std::to_string(getuid()))).string();
 #endif
 }
 
@@ -407,6 +413,30 @@ std::string get_runtime_dir() {
     char temp_path[MAX_PATH];
     GetTempPathA(MAX_PATH, temp_path);
     return std::string(temp_path);
+#elif defined(__APPLE__)
+    // macOS: use platform-resolved temp directory via std::filesystem.
+    // On macOS, fs::temp_directory_path() returns a per-user temp directory
+    // (e.g. /var/folders/xx/.../T/) rather than /tmp.
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec);
+    if (!ec && !base.empty()) {
+        fs::path lemon_dir = base / "lemonade";
+        ec.clear();
+        fs::create_directories(lemon_dir, ec);
+        if (!ec || fs::is_directory(lemon_dir)) {
+            return lemon_dir.string();
+        }
+    }
+    // Fallback: TMPDIR or /tmp with UID hardening
+    {
+        const char* tmpdir = std::getenv("TMPDIR");
+        std::string fallback = (fs::path(tmpdir && tmpdir[0] ? tmpdir : "/tmp") /
+                                ("lemonade-runtime-" + std::to_string(getuid())))
+                                   .string();
+        std::error_code ec2;
+        fs::create_directories(fallback, ec2);
+        return fallback;
+    }
 #else
     // Use $XDG_RUNTIME_DIR/lemonade only when the base directory is set,
     // actually exists on disk, and is writable by the current process.
@@ -419,7 +449,7 @@ std::string get_runtime_dir() {
         if (fs::is_directory(base, ec) && !ec && access(xdg, W_OK) == 0) {
             fs::path lemon_dir = base / "lemonade";
             ec.clear();
-            fs::create_directory(lemon_dir, ec);
+            fs::create_directories(lemon_dir, ec);
             // Treat "already exists as a directory" as success: some platforms
             // set ec to EEXIST even though the standard says they shouldn't.
             std::error_code ec2;
@@ -428,8 +458,19 @@ std::string get_runtime_dir() {
             }
         }
     }
-    // Fallback: /tmp for CI runners and systems without XDG session support
-    return "/tmp";
+    // Fallback: platform-resolved temp directory for CI runners and systems
+    // without XDG session support. Append UID to prevent predictable-path
+    // attacks on multi-user systems.
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec);
+    if (ec) {
+        base = "/tmp";
+    }
+    std::string fallback =
+        (base / ("lemonade-runtime-" + std::to_string(getuid()))).string();
+    ec.clear();
+    fs::create_directories(fallback, ec);
+    return fallback;
 #endif
 }
 
