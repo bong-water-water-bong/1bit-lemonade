@@ -35,7 +35,10 @@ static const json DEFAULTS = {
     {"flm_args", ""},       // Custom arguments to pass to flm serve
     // vLLM-specific options
     {"vllm_backend", ""},  // "" means auto-detect
-    {"vllm_args", ""}      // Custom arguments to pass to vllm-server
+    {"vllm_args", ""},     // Custom arguments to pass to vllm-server
+    // BitNet (rocm-cpp) specific options
+    {"bitnet_backend", ""}, // "" means auto-detect (rocm)
+    {"bitnet_args", ""}     // Custom arguments to pass to bitnet_decode
 };
 
 // Mapping from flat option names to CLI flags (used by to_cli_options)
@@ -54,7 +57,9 @@ static const std::map<std::string, std::string> OPTION_TO_CLI_FLAG = {
     {"whispercpp_args", "--whispercpp-args"},
     {"flm_args", "--flm-args"},
     {"vllm_backend", "--vllm"},
-    {"vllm_args", "--vllm-args"}
+    {"vllm_args", "--vllm-args"},
+    {"bitnet_backend", "--bitnet"},
+    {"bitnet_args", "--bitnet-args"}
 };
 
 static std::vector<std::string> get_keys_for_recipe(const std::string& recipe) {
@@ -70,6 +75,8 @@ static std::vector<std::string> get_keys_for_recipe(const std::string& recipe) {
         return {"sd-cpp_backend", "sdcpp_args", "steps", "cfg_scale", "width", "height", "sampling_method", "flow_shift", "merge_args"};
     } else if (recipe == "vllm") {
         return {"ctx_size", "vllm_backend", "vllm_args", "merge_args"};
+    } else if (recipe == "bitnet") {
+        return {"bitnet_backend", "bitnet_args", "merge_args"};
     } else {
         return {};
     }

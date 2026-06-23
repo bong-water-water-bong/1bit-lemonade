@@ -197,6 +197,10 @@ static const std::vector<RecipeBackendDef> RECIPE_DEFS = {
     {"vllm", "rocm", {"linux"}, {
         {"amd_gpu", {"gfx1150", "gfx1151", "gfx110X", "gfx120X"}},
     }},
+    // rocm-cpp BitNet - native 1-bit/ternary HIP kernels for Strix Halo (Linux only)
+    {"bitnet", "rocm", {"linux"}, {
+        {"amd_gpu", {"gfx1151"}},
+    }},
 };
 
 // ============================================================================

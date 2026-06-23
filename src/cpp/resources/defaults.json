@@ -55,6 +55,11 @@
     "backend": "auto",
     "args": ""
   },
+  "bitnet": {
+    "backend": "auto",
+    "args": "",
+    "bitnet_args": ""
+  },
   "ryzenai": {
     "server_bin": "builtin"
   },
