@@ -1,3 +1,14 @@
+## 🍋 1bit-lemonade — Lemonade SDK fork for Strix Halo 1-bit inference
+
+> This is a fork of [lemonade-sdk/lemonade](https://github.com/lemonade-sdk/lemonade)
+> with a native **BitNetServer backend** that wraps rocm-cpp HIP kernels
+> for 1-bit/ternary inference on AMD Strix Halo (gfx1151).
+>
+> **Backend version:** pinned to [rocm-cpp v0.2.0](https://github.com/bong-water-water-bong/rocm-cpp).
+> **CI:** core C++ server build + validation. Distro packaging disabled (fork-only).
+
+---
+
 ## 🍋 Lemonade: Refreshingly fast local AI
 
 <p align="center">
