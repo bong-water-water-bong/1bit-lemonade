@@ -82,8 +82,8 @@
     "rocm": "vllm0.20.1-rocm7.12.0"
   },
   "bitnet": {
-    "rocm": "v0.1.0",
-    "rocm-runtime": "7.13.0"
+    "rocm": "v0.2.0",
+    "rocm-runtime": "7.2.4"
   },
   "clear_bin_if_lemonade_below": "9.4.0"
 }
