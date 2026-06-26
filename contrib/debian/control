@@ -50,6 +50,8 @@ Multi-Arch: foreign
 Depends: ${shlibs:Depends}, ${misc:Depends}, fonts-katex, unzip, libatomic1
 Recommends: ffmpeg,
             libxrt-npu2,
+Conflicts: lemonade-server-minimal, lemonade
+Replaces: lemonade-server-minimal, lemonade
 Description: Local LLM serving with GPU and NPU acceleration server
  Lemonade helps users run local LLMs with the highest performance by
  configuring state-of-the-art inference engines for their NPUs and GPUs.
@@ -62,6 +64,7 @@ Architecture: all
 Multi-Arch: foreign
 Depends: ${shlibs:Depends}, ${misc:Depends}, jq, lemonade-server, xdg-utils
 Recommends: chromium | www-browser
+Replaces: lemonade
 Description: Local LLM serving with GPU and NPU acceleration web application
  Lemonade helps users run local LLMs with the highest performance by
  configuring state-of-the-art inference engines for their NPUs and GPUs.
