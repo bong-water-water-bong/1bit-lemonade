@@ -1342,6 +1342,12 @@ void Server::handle_models(const httplib::Request& req, httplib::Response& res) 
     // Check if we should show all models (for CLI list command) or only downloaded (OpenAI API behavior)
     bool show_all = req.has_param("show_all") && req.get_param_value("show_all") == "true";
 
+    // Optional model type filter: llm (default), embedding, reranking, transcription, image, tts, all
+    std::string type_filter;
+    if (req.has_param("type")) {
+        type_filter = req.get_param_value("type");
+    }
+
     // OPTIMIZATION: For OpenAI API mode, use get_downloaded_models() which filters first
     // Only use get_supported_models() when we need to show ALL models
     std::map<std::string, ModelInfo> models;
@@ -1355,7 +1361,28 @@ void Server::handle_models(const httplib::Request& req, httplib::Response& res) 
     response["data"] = nlohmann::json::array();
     response["object"] = "list";
 
+    // Map query param to ModelType for comparison
+    ModelType filter_type = ModelType::LLM;  // default: LLM only
+    bool type_filter_active = !type_filter.empty() && type_filter != "all";
+    if (type_filter_active) {
+        if (type_filter == "embedding") filter_type = ModelType::EMBEDDING;
+        else if (type_filter == "reranking") filter_type = ModelType::RERANKING;
+        else if (type_filter == "transcription") filter_type = ModelType::TRANSCRIPTION;
+        else if (type_filter == "image") filter_type = ModelType::IMAGE;
+        else if (type_filter == "tts") filter_type = ModelType::TTS;
+        else type_filter_active = false;  // unknown type → show all
+    }
+
     for (const auto& [model_id, model_info] : models) {
+        // Apply type filter. When no ?type= param is given, only LLM models
+        // are returned (OpenAI-compatible default for chat clients).
+        if (!type_filter_active && model_info.type != ModelType::LLM) {
+            continue;
+        }
+        // When ?type= is specified, filter to match
+        if (type_filter_active && model_info.type != filter_type) {
+            continue;
+        }
         response["data"].push_back(model_info_to_json(model_id, model_info));
     }
 
@@ -1368,6 +1395,7 @@ nlohmann::json Server::model_info_to_json(const std::string& model_id, const Mod
         {"object", "model"},
         {"created", 1234567890},
         {"owned_by", "lemonade"},
+        {"type", model_type_to_string(info.type)},
         {"checkpoint", info.checkpoint()},
         {"checkpoints", info.checkpoints},
         {"recipe", info.recipe},
