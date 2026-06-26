@@ -38,7 +38,10 @@ static const json DEFAULTS = {
     {"vllm_args", ""},     // Custom arguments to pass to vllm-server
     // BitNet (rocm-cpp) specific options
     {"bitnet_backend", ""}, // "" means auto-detect (rocm)
-    {"bitnet_args", ""}     // Custom arguments to pass to bitnet_decode
+    {"bitnet_args", ""},    // Custom arguments to pass to bitnet_decode
+    // Kokoro TTS specific options
+    {"kokoro_backend", ""},  // "" means auto-detect
+    {"kokoro_args", ""}      // Custom arguments to pass to kokoro
 };
 
 // Mapping from flat option names to CLI flags (used by to_cli_options)
@@ -229,20 +232,20 @@ json RecipeOptions::get_option(const std::string& opt) const {
 #ifdef LEMONADE_CLI
 // CLI_OPTIONS used only by the lemonade CLI client for add_cli_options
 static const json CLI_OPTIONS = {
-    {"--ctx-size", {{"option_name", "ctx_size"}, {"type_name", "SIZE"}, {"envname", "LEMONADE_CTX_SIZE"}, {"help", "Context size for the model"}}},
-    {"--merge-args", {{"option_name", "merge_args"}, {"type_name", "BOOL"}, {"envname", "LEMONADE_MERGE_ARGS"}, {"help", "Merge global and model arguments when loading the model"}}},
-    {"--llamacpp", {{"option_name", "llamacpp_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_LLAMACPP"}, {"help", "LlamaCpp backend to use"}}},
-    {"--llamacpp-device", {{"option_name", "llamacpp_device"}, {"type_name", "DEVICES"}, {"envname", "LEMONADE_LLAMACPP_DEVICE"}, {"help", "Comma-separated list of accelerator devices to use (e.g. Vulkan0)"}}},
-    {"--llamacpp-args", {{"option_name", "llamacpp_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_LLAMACPP_ARGS"}, {"help", "Custom arguments to pass to llama-server"}}},
-    {"--sdcpp", {{"option_name", "sd-cpp_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_SDCPP"}, {"help", "SD.cpp backend to use"}}},
-    {"--sdcpp-args", {{"option_name", "sdcpp_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_SDCPP_ARGS"}, {"help", "Custom arguments to pass to sd-server (must not conflict with managed args)"}}},
-    {"--whispercpp", {{"option_name", "whispercpp_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_WHISPERCPP"}, {"help", "WhisperCpp backend to use"}}},
-    {"--whispercpp-args", {{"option_name", "whispercpp_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_WHISPERCPP_ARGS"}, {"help", "Custom arguments to pass to whisper-server"}}},
-    {"--vllm", {{"option_name", "vllm_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_VLLM"}, {"help", "vLLM backend to use"}}},
-    {"--vllm-args", {{"option_name", "vllm_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_VLLM_ARGS"}, {"help", "Custom arguments to pass to vllm-server"}}},
-    // Note: Image gen params (--steps, --cfg-scale, --width, --height) removed — recipe-level only.
-    // Runtime options (--diffusion-fa, --offload-to-cpu) go through --sdcpp-args.
-    {"--flm-args", {{"option_name", "flm_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_FLM_ARGS"}, {"help", "Custom arguments to pass to flm serve"}}}
+    {"--ctx-size", {{"option_name", "ctx_size"}, {"type_name", "SIZE"}, {"envname", "LEMONADE_CTX_SIZE"}, {"help", "Context size for the model"}, {"group", "General"}}},
+    {"--merge-args", {{"option_name", "merge_args"}, {"type_name", "BOOL"}, {"envname", "LEMONADE_MERGE_ARGS"}, {"help", "Merge global and model arguments when loading the model"}, {"group", "General"}}},
+    {"--llamacpp", {{"option_name", "llamacpp_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_LLAMACPP"}, {"help", "LlamaCpp backend to use"}, {"group", "LLM (llama.cpp)"}}},
+    {"--llamacpp-device", {{"option_name", "llamacpp_device"}, {"type_name", "DEVICES"}, {"envname", "LEMONADE_LLAMACPP_DEVICE"}, {"help", "Comma-separated list of accelerator devices to use (e.g. Vulkan0)"}, {"group", "LLM (llama.cpp)"}}},
+    {"--llamacpp-args", {{"option_name", "llamacpp_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_LLAMACPP_ARGS"}, {"help", "Custom arguments to pass to llama-server"}, {"group", "LLM (llama.cpp)"}}},
+    {"--sdcpp", {{"option_name", "sd-cpp_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_SDCPP"}, {"help", "SD.cpp backend to use"}, {"group", "Image Generation"}}},
+    {"--sdcpp-args", {{"option_name", "sdcpp_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_SDCPP_ARGS"}, {"help", "Custom arguments to pass to sd-server"}, {"group", "Image Generation"}}},
+    {"--whispercpp", {{"option_name", "whispercpp_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_WHISPERCPP"}, {"help", "WhisperCpp backend to use"}, {"group", "Audio"}}},
+    {"--whispercpp-args", {{"option_name", "whispercpp_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_WHISPERCPP_ARGS"}, {"help", "Custom arguments to pass to whisper-server"}, {"group", "Audio"}}},
+    {"--kokoro", {{"option_name", "kokoro_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_KOKORO"}, {"help", "Kokoro TTS backend to use"}, {"group", "Text-to-Speech"}}},
+    {"--vllm", {{"option_name", "vllm_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_VLLM"}, {"help", "vLLM backend to use"}, {"group", "LLM (vLLM)"}}},
+    {"--vllm-args", {{"option_name", "vllm_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_VLLM_ARGS"}, {"help", "Custom arguments to pass to vllm-server"}, {"group", "LLM (vLLM)"}}},
+    {"--bitnet", {{"option_name", "bitnet_backend"}, {"type_name", "BACKEND"}, {"envname", "LEMONADE_BITNET"}, {"help", "BitNet backend to use"}, {"group", "LLM (BitNet)"}}},
+    {"--flm-args", {{"option_name", "flm_args"}, {"type_name", "ARGS"}, {"envname", "LEMONADE_FLM_ARGS"}, {"help", "Custom arguments to pass to flm serve"}, {"group", "NPU (FLM)"}}}
 };
 
 void RecipeOptions::add_cli_options(CLI::App& app, json& storage) {
@@ -267,6 +270,11 @@ void RecipeOptions::add_cli_options(CLI::App& app, json& storage) {
 
         o->envname(opt["envname"]);
         o->type_name(opt["type_name"]);
+
+        // Group options by category for organized --help output
+        if (opt.contains("group") && opt["group"].is_string()) {
+            o->group(opt["group"].get<std::string>());
+        }
     }
 }
 #endif
