@@ -86,6 +86,49 @@ bool strip_handled_thinking_fields(json& request_json) {
     return modified;
 }
 
+// Normalize messages[] content: convert array-format content (OpenAI API)
+// to string by joining text parts. llama.cpp and RyzenAI servers reject
+// array content, but the OpenAI spec allows it.
+void normalize_message_contents(json& request_json) {
+    if (!request_json.contains("messages") || !request_json["messages"].is_array()) {
+        return;
+    }
+    for (auto& msg : request_json["messages"]) {
+        if (!msg.is_object() || !msg.contains("content")) {
+            continue;
+        }
+        auto& content = msg["content"];
+        if (!content.is_array()) {
+            continue;
+        }
+        // Extract text parts and preserve image parts for multimodal backends
+        std::string text_parts;
+        json image_parts = json::array();
+        for (const auto& part : content) {
+            if (part.is_object() && part.contains("type") && part["type"] == "text" && part.contains("text")) {
+                if (!text_parts.empty()) text_parts += "\n";
+                text_parts += part["text"].get<std::string>();
+            } else if (part.is_object() && part.contains("type") && part["type"] == "image_url") {
+                image_parts.push_back(part);
+            }
+        }
+        // Keep image parts in array format alongside the text
+        if (!image_parts.empty()) {
+            json new_content = json::array();
+            if (!text_parts.empty()) {
+                new_content.push_back({{"type", "text"}, {"text", text_parts}});
+            }
+            for (auto& img : image_parts) {
+                new_content.push_back(img);
+            }
+            content = new_content;
+        } else {
+            // Text-only content: convert array to string for backend compatibility
+            content = text_parts;
+        }
+    }
+}
+
 bool prepend_no_think_to_last_user_message(json& request_json) {
     if (!request_json.contains("messages") || !request_json["messages"].is_array()) {
         LOG(DEBUG, "Server") << "No messages array found for /no_think injection" << std::endl;
@@ -1425,6 +1468,10 @@ void Server::handle_model_by_id(const httplib::Request& req, httplib::Response& 
 void Server::handle_chat_completions(const httplib::Request& req, httplib::Response& res) {
     try {
         auto request_json = nlohmann::json::parse(req.body);
+
+        // Normalize array-format message content to string for backend
+        // compatibility (llama.cpp, RyzenAI require string content).
+        normalize_message_contents(request_json);
 
         // Debug: Check if tools are present
         if (request_json.contains("tools")) {
