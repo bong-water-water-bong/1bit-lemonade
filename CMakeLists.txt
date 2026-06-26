@@ -7,6 +7,8 @@ endif()
 
 project(lemon_cpp VERSION 10.5.1)
 
+include(CTest)
+
 # Export compile_commands.json for clangd/IntelliSense
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -737,6 +739,37 @@ endif()
 
 # lemond inherits all deps from lemonade-server-core
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE lemonade-server-core)
+
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    add_executable(github_rate_limit_test
+        test/cpp/test_github_rate_limit.cpp
+    )
+
+    add_executable(http_client_headers_test
+        test/cpp/http_client_test_path_utils_stub.cpp
+        test/cpp/test_http_client_headers.cpp
+        src/cpp/server/utils/http_client.cpp
+    )
+    target_link_libraries(http_client_headers_test PRIVATE nlohmann_json::nlohmann_json)
+    if(USE_SYSTEM_CURL)
+        target_link_libraries(http_client_headers_test PRIVATE ${CURL_LIBRARIES})
+        target_include_directories(http_client_headers_test PRIVATE ${CURL_INCLUDE_DIRS})
+        target_link_directories(http_client_headers_test PRIVATE ${CURL_LIBRARY_DIRS})
+        target_compile_options(http_client_headers_test PRIVATE ${CURL_CFLAGS_OTHER})
+    else()
+        target_link_libraries(http_client_headers_test PRIVATE libcurl)
+    endif()
+
+    add_test(NAME github_rate_limit COMMAND github_rate_limit_test)
+    add_test(
+        NAME http_client_headers
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test/cpp/run_http_client_headers_test.py
+                $<TARGET_FILE:http_client_headers_test>
+    )
+endif()
 
 # ============================================================
 # Resources

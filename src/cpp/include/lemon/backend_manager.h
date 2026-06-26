@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 #include "model_manager.h"  // For DownloadProgressCallback
+#include "utils/github_rate_limit.h"
 
 namespace lemon {
 
@@ -66,6 +67,7 @@ private:
     // Restart `lemond` to re-resolve.
     std::unordered_map<std::string, std::string> latest_version_cache_;
     std::mutex latest_version_cache_mutex_;
+    utils::GitHubRateLimitBackoff github_rate_limit_backoff_;
 
     // Get version for a recipe/backend from the cached config
     std::string get_version_from_config(const std::string& recipe, const std::string& backend);

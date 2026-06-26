@@ -126,6 +126,12 @@ bool has_matching_system_rocm_runtime(const std::string& expected_runtime_versio
     return runtime_version_matches_expected(system_version, expected_runtime_version);
 }
 
+long long seconds_until(std::chrono::system_clock::time_point until,
+                        std::chrono::system_clock::time_point now) {
+    auto seconds = std::chrono::duration_cast<std::chrono::seconds>(until - now).count();
+    return seconds < 0 ? 0 : seconds;
+}
+
 bool will_install_therock(const std::string& os, const json& backend_versions) {
     // TheRock is needed on Linux and Windows for ROCm stable channel.
     if (os != "linux" && os != "windows") {
@@ -238,12 +244,25 @@ std::string BackendManager::get_version_from_config(const std::string& recipe, c
 
 std::string BackendManager::fetch_latest_github_tag(const std::string& repo,
                                                      bool throw_on_failure) {
+    const auto now = std::chrono::system_clock::now();
     {
         std::lock_guard<std::mutex> lock(latest_version_cache_mutex_);
         auto it = latest_version_cache_.find(repo);
         if (it != latest_version_cache_.end()) {
             return it->second;
         }
+    }
+
+    if (auto backoff_until = github_rate_limit_backoff_.backoff_until(repo, now)) {
+        const auto wait_seconds = seconds_until(*backoff_until, now);
+        const std::string message = "GitHub rate limit active for " + repo
+            + "; skipping latest-release query for " + std::to_string(wait_seconds)
+            + " seconds";
+        if (throw_on_failure) {
+            throw std::runtime_error(message);
+        }
+        LOG(DEBUG, "BackendManager") << message << std::endl;
+        return "";
     }
 
     auto* cfg = RuntimeConfig::global();
@@ -282,6 +301,18 @@ std::string BackendManager::fetch_latest_github_tag(const std::string& repo,
         return "";
     }
     if (resp.status_code < 200 || resp.status_code >= 300) {
+        if (auto backoff_until = github_rate_limit_backoff_.record_response(repo, resp, now)) {
+            const auto wait_seconds = seconds_until(*backoff_until, now);
+            const std::string message = "GitHub rate limit reached for " + repo
+                + " (HTTP " + std::to_string(resp.status_code) + ")"
+                + "; backing off for " + std::to_string(wait_seconds) + " seconds";
+            if (throw_on_failure) {
+                throw std::runtime_error(message);
+            }
+            LOG(WARNING, "BackendManager") << message << std::endl;
+            return "";
+        }
+
         if (throw_on_failure) {
             throw std::runtime_error(
                 "GitHub returned HTTP " + std::to_string(resp.status_code)
