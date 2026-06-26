@@ -1473,6 +1473,12 @@ void Server::handle_chat_completions(const httplib::Request& req, httplib::Respo
         // compatibility (llama.cpp, RyzenAI require string content).
         normalize_message_contents(request_json);
 
+        // Use normalized request body - both streaming and non-streaming paths
+        // must use the normalized version where content has been converted from
+        // array to string format.
+        std::string request_body = request_json.dump();
+        bool request_modified = true;
+
         // Debug: Check if tools are present
         if (request_json.contains("tools")) {
             LOG(DEBUG, "Server") << "Tools present in request: " << request_json["tools"].size() << " tool(s)" << std::endl;
@@ -1518,19 +1524,14 @@ void Server::handle_chat_completions(const httplib::Request& req, httplib::Respo
         // Check if streaming is requested
         bool is_streaming = request_json.contains("stream") && request_json["stream"].get<bool>();
 
-        // Use original request body - each backend (FLM, llamacpp, etc.) handles
-        // model name transformation internally via their forward methods
-        std::string request_body = req.body;
-        bool request_modified = false;
-
         // OpenCode and other OpenAI-compatible clients may send thinking=false
         // instead of Lemonade's enable_thinking=false.
         if (should_disable_thinking(request_json)) {
-            request_modified = prepend_no_think_to_last_user_message(request_json);
+            request_modified = prepend_no_think_to_last_user_message(request_json) || request_modified;
         }
         request_modified = strip_handled_thinking_fields(request_json) || request_modified;
 
-        // If we modified the request, serialize it back to string
+        // If we modified the request (content normalization or thinking), serialize it
         if (request_modified) {
             request_body = request_json.dump();
         }
