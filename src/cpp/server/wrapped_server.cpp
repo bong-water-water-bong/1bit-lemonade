@@ -187,7 +187,15 @@ void WrappedServer::forward_streaming_request(const std::string& endpoint,
         LOG(ERROR, "WrappedServer") << "Streaming request failed: " << e.what() << std::endl;
         // Try to send error to client if possible
         try {
-            std::string error_msg = "data: {\"error\":{\"message\":\"" + std::string(e.what()) +
+            // Check if the backend process died during the request and include
+            // that information in the error message so the client sees a useful
+            // diagnostic instead of a generic "Failure when receiving data".
+            std::string detail = e.what();
+            if (!utils::ProcessManager::is_running(process_handle_)) {
+                int exit_code = utils::ProcessManager::get_exit_code(process_handle_);
+                detail += " (backend process exited with code " + std::to_string(exit_code) + ")";
+            }
+            std::string error_msg = "data: {\"error\":{\"message\":\"" + detail +
                                    "\",\"type\":\"streaming_error\"}}\n\n";
             sink.write(error_msg.c_str(), error_msg.size());
             sink.done();
