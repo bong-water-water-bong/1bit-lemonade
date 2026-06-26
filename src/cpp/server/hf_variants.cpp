@@ -287,7 +287,18 @@ nlohmann::json fetch_pull_variants(const std::string& checkpoint, bool& not_foun
     std::vector<std::string> labels;
     if (!vset.mmproj_files.empty()) labels.push_back("vision");
     {
+        // Also detect vision models without mmproj by checking the HF repo's
+        // pipeline_tag or name for vision indicators (e.g. Youtu-VL-4B).
+        std::string pipeline_tag = info.value("pipeline_tag", "");
         std::string id_lower = to_lower(checkpoint);
+        bool has_vision_pipeline = (pipeline_tag == "image-text-to-text" ||
+                                     pipeline_tag == "visual-question-answering");
+        bool has_vision_name = (id_lower.find("-vl") != std::string::npos ||
+                                 id_lower.find("-vision") != std::string::npos ||
+                                 contains_ci(checkpoint, "multimodal"));
+        if (has_vision_pipeline || has_vision_name) {
+            labels.push_back("vision");
+        }
         if (id_lower.find("embed") != std::string::npos) labels.push_back("embeddings");
         if (id_lower.find("rerank") != std::string::npos) labels.push_back("reranking");
     }
