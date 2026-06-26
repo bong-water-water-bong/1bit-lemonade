@@ -50,6 +50,10 @@ public:
         long timeout_seconds = 300
     );
 
+    // Normalize OpenAI chat completion chunks from backends that emit null or
+    // missing delta.role values on content chunks.
+    static std::string normalize_chat_completion_chunk_roles(const std::string& sse_chunk);
+
 private:
     // Parse telemetry from SSE chunks
     static TelemetryData parse_telemetry(const std::string& buffer);

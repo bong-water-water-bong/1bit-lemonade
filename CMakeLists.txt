@@ -738,6 +738,13 @@ endif()
 # lemond inherits all deps from lemonade-server-core
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE lemonade-server-core)
 
+# C++ unit tests
+enable_testing()
+
+add_executable(test_streaming_proxy_roles test/cpp/test_streaming_proxy_roles.cpp)
+target_link_libraries(test_streaming_proxy_roles PRIVATE lemonade-server-core)
+add_test(NAME test_streaming_proxy_roles COMMAND test_streaming_proxy_roles)
+
 # ============================================================
 # Resources
 # ============================================================

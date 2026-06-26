@@ -5,6 +5,89 @@
 
 namespace lemon {
 
+namespace {
+
+std::string normalize_data_line(const std::string& line) {
+    const std::string prefix = "data: ";
+    if (line.rfind(prefix, 0) != 0) {
+        return line;
+    }
+
+    std::string suffix;
+    std::string payload = line.substr(prefix.size());
+    if (!payload.empty() && payload.back() == '\r') {
+        suffix = "\r";
+        payload.pop_back();
+    }
+
+    if (payload.empty() || payload == "[DONE]") {
+        return line;
+    }
+
+    try {
+        auto chunk = json::parse(payload);
+        if (!chunk.is_object() ||
+            !chunk.contains("object") ||
+            !chunk["object"].is_string() ||
+            chunk["object"].get<std::string>() != "chat.completion.chunk" ||
+            !chunk.contains("choices") ||
+            !chunk["choices"].is_array()) {
+            return line;
+        }
+
+        bool changed = false;
+        for (auto& choice : chunk["choices"]) {
+            if (!choice.is_object() || !choice.contains("delta") || !choice["delta"].is_object()) {
+                continue;
+            }
+
+            auto& delta = choice["delta"];
+            const bool role_is_null = delta.contains("role") && delta["role"].is_null();
+            const bool role_is_missing = !delta.contains("role");
+            const bool has_assistant_delta =
+                delta.contains("content") ||
+                delta.contains("reasoning_content") ||
+                delta.contains("thinking") ||
+                delta.contains("tool_calls") ||
+                delta.contains("function_call");
+
+            if (role_is_null || (role_is_missing && has_assistant_delta)) {
+                delta["role"] = "assistant";
+                changed = true;
+            }
+        }
+
+        if (!changed) {
+            return line;
+        }
+
+        return prefix + chunk.dump() + suffix;
+    } catch (...) {
+        return line;
+    }
+}
+
+} // namespace
+
+std::string StreamingProxy::normalize_chat_completion_chunk_roles(const std::string& sse_chunk) {
+    std::string output;
+    size_t pos = 0;
+
+    while (pos < sse_chunk.size()) {
+        size_t newline = sse_chunk.find('\n', pos);
+        if (newline == std::string::npos) {
+            output += normalize_data_line(sse_chunk.substr(pos));
+            break;
+        }
+
+        output += normalize_data_line(sse_chunk.substr(pos, newline - pos));
+        output.push_back('\n');
+        pos = newline + 1;
+    }
+
+    return output;
+}
+
 void StreamingProxy::forward_sse_stream(
     const std::string& backend_url,
     const std::string& request_body,
@@ -16,11 +99,16 @@ void StreamingProxy::forward_sse_stream(
     bool stream_error = false;
     bool has_done_marker = false;
 
+    // libcurl may deliver an SSE line split across multiple write callbacks, so
+    // accumulate partial input and only normalize complete lines (terminated by
+    // '\n') before forwarding them to the client.
+    std::string line_buffer;
+
     // Use HttpClient to stream from backend
     auto result = utils::HttpClient::post_stream(
         backend_url,
         request_body,
-        [&sink, &telemetry_buffer, &has_done_marker](const char* data, size_t length) {
+        [&sink, &telemetry_buffer, &has_done_marker, &line_buffer](const char* data, size_t length) {
             // Buffer for telemetry parsing
             telemetry_buffer.append(data, length);
 
@@ -30,9 +118,24 @@ void StreamingProxy::forward_sse_stream(
                 has_done_marker = true;
             }
 
-            // Forward chunk to client immediately
-            if (!sink.write(data, length)) {
-                return false; // Client disconnected
+            // Accumulate bytes and flush only complete (newline-terminated) lines
+            // so normalization can safely parse each `data: {...}` payload.
+            line_buffer.append(chunk);
+            std::string output;
+            size_t pos = 0;
+            size_t newline;
+            while ((newline = line_buffer.find('\n', pos)) != std::string::npos) {
+                output.append(
+                    StreamingProxy::normalize_chat_completion_chunk_roles(
+                        line_buffer.substr(pos, newline - pos + 1)));
+                pos = newline + 1;
+            }
+            line_buffer.erase(0, pos);
+
+            if (!output.empty()) {
+                if (!sink.write(output.data(), output.size())) {
+                    return false; // Client disconnected
+                }
             }
 
             return true; // Continue streaming
@@ -47,6 +150,14 @@ void StreamingProxy::forward_sse_stream(
     }
 
     if (!stream_error) {
+        // Flush any trailing partial line (e.g., backend that omitted a final
+        // newline before closing the connection).
+        if (!line_buffer.empty()) {
+            std::string tail = StreamingProxy::normalize_chat_completion_chunk_roles(line_buffer);
+            sink.write(tail.data(), tail.size());
+            line_buffer.clear();
+        }
+
         // Ensure [DONE] marker is sent if backend didn't send it
         if (!has_done_marker) {
             LOG(WARNING, "StreamingProxy") << "WARNING: Backend did not send [DONE] marker, adding it" << std::endl;

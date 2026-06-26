@@ -149,6 +149,17 @@ class Handler(BaseHTTPRequestHandler):
 ReusableHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 """
 
+# A mock llama-server that mirrors the buggy streaming behavior reported in
+# lemonade-sdk/lemonade#350: the opening chunk and content deltas ship
+# "role": null instead of "assistant".
+MOCK_LLAMA_SERVER_NULL_ROLE_PYTHON = MOCK_LLAMA_SERVER_PYTHON.replace(
+    '{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}',
+    '{"index": 0, "delta": {"reasoning_content": "thinking...", "role": None}, "finish_reason": None}',
+).replace(
+    '{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}',
+    '{"index": 0, "delta": {"content": "hello", "role": None}, "finish_reason": None}',
+)
+
 
 def _is_server_running(port=PORT):
     """Check if the server is running on the given port."""
@@ -544,6 +555,74 @@ class LlamaCppSystemBackendTests(unittest.TestCase):
         self.assertEqual(forwarded_request["messages"][-1]["content"], "Say hello.")
         self.assertNotIn("thinking", forwarded_request)
         self.assertNotIn("enable_thinking", forwarded_request)
+
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"), "System backend only supported on Linux"
+    )
+    def test_008_stream_assistant_role_added_when_backend_emits_null_role(self):
+        """
+        Verify (issue #350) that streamed chat chunks expose delta.role as
+        "assistant" even when the backend emits null/missing roles.
+        """
+        self._write_llama_server(MOCK_LLAMA_SERVER_NULL_ROLE_PYTHON)
+        self._add_dummy_llama_server_to_path()
+
+        _stop_server()
+        _start_server(wrapped_server="llamacpp", backend="system")
+        self._ensure_model_pulled()
+
+        load_response = requests.post(
+            f"http://localhost:{PORT}/api/v1/load",
+            json={"model_name": ENDPOINT_TEST_MODEL, "llamacpp_backend": "system"},
+            timeout=TIMEOUT_MODEL_OPERATION,
+        )
+        self.assertEqual(load_response.status_code, 200)
+
+        response = requests.post(
+            f"http://localhost:{PORT}/api/v1/chat/completions",
+            json={
+                "model": ENDPOINT_TEST_MODEL,
+                "messages": [{"role": "user", "content": "Say hello."}],
+                "stream": True,
+                "max_tokens": 8,
+            },
+            stream=True,
+            timeout=TIMEOUT_DEFAULT,
+        )
+        self.assertEqual(response.status_code, 200)
+
+        roles = []
+        saw_done = False
+        saw_content = False
+        saw_reasoning = False
+        for raw in response.iter_lines():
+            line = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+            if not line.startswith("data: "):
+                continue
+            payload = line[len("data: "):]
+            if payload == "[DONE]":
+                saw_done = True
+                continue
+            chunk = json.loads(payload)
+            if chunk.get("object") != "chat.completion.chunk":
+                continue
+            for choice in chunk.get("choices", []):
+                delta = choice.get("delta", {})
+                if "role" in delta:
+                    roles.append(delta["role"])
+                if delta.get("content"):
+                    saw_content = True
+                if delta.get("reasoning_content"):
+                    saw_reasoning = True
+
+        self.assertTrue(saw_done, "Stream should end with [DONE]")
+        self.assertTrue(saw_content, "Stream should include a content delta")
+        self.assertTrue(saw_reasoning, "Stream should include a reasoning delta")
+        self.assertTrue(
+            all(role == "assistant" for role in roles),
+            f"All delta roles should be 'assistant', got {roles}",
+        )
 
 
 def _run_tests():
