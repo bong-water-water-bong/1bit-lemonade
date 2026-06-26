@@ -465,7 +465,8 @@ void LlamaCppServer::load(const std::string& model_name,
     // Start process (inherit output if debug logging enabled, filter health check spam)
     // Keep llama-server output visible at info log level.
     bool inherit_llama_output = (log_level_ == "info") || is_debug();
-    process_handle_ = ProcessManager::start_process(executable, args, "", inherit_llama_output, true, env_vars);
+    std::string cache_working_dir = utils::get_cache_dir();
+    process_handle_ = ProcessManager::start_process(executable, args, cache_working_dir, inherit_llama_output, true, env_vars);
 
     // Wait for server to be ready
     if (!wait_for_ready("/health")) {
