@@ -47,6 +47,16 @@ public:
     // Get process exit code (returns -1 if still running)
     static int get_exit_code(ProcessHandle handle);
 
+#ifndef _WIN32
+    // Set CPU affinity for a running process: pin to specific logical CPUs.
+    static void set_cpu_affinity(ProcessHandle handle, const std::vector<int>& cpus);
+
+    // Detect CPU topology: returns groups of logical CPUs that share an L3
+    // cache (CCX). Each group should be assigned to a separate backend process
+    // to avoid L3 cache thrashing on multi-CCX systems (e.g. Strix Halo).
+    static std::vector<std::vector<int>> get_cpu_topology();
+#endif
+
     // Wait for process to exit
     static int wait_for_exit(ProcessHandle handle, int timeout_seconds = -1);
 

@@ -20,6 +20,10 @@
 #include <cstring>
 #include <algorithm>
 #include <cctype>
+#include <fstream>
+#include <map>
+#include <vector>
+#include <functional>
 #include <lemon/utils/aixlog.hpp>
 
 #ifdef _WIN32
@@ -38,6 +42,7 @@
 #include <errno.h>
 #ifdef __linux__
 #include <sys/prctl.h>  // PR_SET_PDEATHSIG — kill child when parent dies
+#include <sched.h>       // CPU_SET, sched_setaffinity — CPU pinning
 #endif
 #ifdef __APPLE__
 #include <spawn.h>      // posix_spawn — fork-safe child creation on macOS
@@ -732,6 +737,92 @@ bool ProcessManager::is_running(ProcessHandle handle) {
     return result == 0;  // 0 means still running
 #endif
 }
+
+#ifndef _WIN32
+void ProcessManager::set_cpu_affinity(ProcessHandle handle, const std::vector<int>& cpus) {
+    if (handle.pid <= 0) return;
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    for (int cpu : cpus) {
+        if (cpu >= 0 && cpu < CPU_SETSIZE) {
+            CPU_SET(cpu, &set);
+        }
+    }
+    if (sched_setaffinity(handle.pid, sizeof(set), &set) != 0) {
+        LOG(WARNING, "ProcessManager") << "Failed to set CPU affinity for PID " << handle.pid << ": " << strerror(errno) << std::endl;
+    }
+#ifdef __linux__
+    else {
+        LOG(INFO, "ProcessManager") << "Set CPU affinity for PID " << handle.pid << " to " << cpus.size() << " core(s)" << std::endl;
+    }
+#endif
+}
+
+std::vector<std::vector<int>> ProcessManager::get_cpu_topology() {
+    std::vector<std::vector<int>> l3_groups;
+
+    // Read L3 cache topology from sysfs (most useful for CCX-aware pinning).
+    // Each index3/shared_cpu_list lists the CPUs that share an L3 cache.
+    std::map<std::string, std::vector<int>> groups_by_shared;
+    for (int cpu = 0; ; cpu++) {
+        std::string path = "/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/cache/index3/shared_cpu_list";
+        std::ifstream f(path);
+        if (!f.is_open()) break;
+        std::string shared;
+        std::getline(f, shared);
+        groups_by_shared[shared].push_back(cpu);
+    }
+
+    if (!groups_by_shared.empty()) {
+        for (auto& [_, cpus] : groups_by_shared) {
+            l3_groups.push_back(cpus);
+        }
+        return l3_groups;
+    }
+
+    // Fallback: parse /proc/cpuinfo to group SMT siblings (hyperthreads)
+    std::map<int, std::vector<int>> cores;  // physical core ID → logical CPUs
+    std::ifstream cpuinfo("/proc/cpuinfo");
+    if (cpuinfo.is_open()) {
+        int current_cpu = -1;
+        int core_id = -1;
+        std::string line;
+        while (std::getline(cpuinfo, line)) {
+            auto parse_int = [&](const std::string& prefix) -> int {
+                if (line.rfind(prefix, 0) != 0) return -1;
+                size_t colon = line.find(':');
+                if (colon == std::string::npos) return -1;
+                return std::stoi(line.substr(colon + 2));
+            };
+            int val;
+            if ((val = parse_int("processor")) >= 0) {
+                if (current_cpu >= 0 && core_id >= 0)
+                    cores[core_id].push_back(current_cpu);
+                current_cpu = val;
+                core_id = -1;
+            } else if ((val = parse_int("core id")) >= 0) {
+                core_id = val;
+            }
+        }
+        if (current_cpu >= 0 && core_id >= 0)
+            cores[core_id].push_back(current_cpu);
+
+        for (auto& [_, cpus] : cores)
+            l3_groups.push_back(cpus);
+    }
+
+    // Absolute fallback: each CPU is its own group
+    if (l3_groups.empty()) {
+        long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+        if (nprocs > 0) {
+            for (long i = 0; i < nprocs; i++)
+                l3_groups.push_back({(int)i});
+        }
+    }
+
+    return l3_groups;
+}
+#endif
 
 int ProcessManager::get_exit_code(ProcessHandle handle) {
 #ifdef _WIN32
