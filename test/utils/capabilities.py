@@ -62,7 +62,7 @@ CAPABILITIES = {
                 "multi_model": True,
                 "stop_parameter": True,
                 "echo_parameter": False,
-                "generation_parameters": False,
+                "generation_parameters": True,
                 "slots": True,
                 "tokenize": True,
                 "static_max_context_window": True,
