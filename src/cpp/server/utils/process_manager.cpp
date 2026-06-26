@@ -60,6 +60,33 @@ static bool should_filter_line(const std::string& line) {
             line.find("Enter 'exit' to stop the server") != std::string::npos);
 }
 
+// Strip ANSI escape codes and terminal control characters from a string.
+// Backends like FLM may emit \x1b[... sequences for terminal formatting;
+// these cause garbled output or hangs when displayed in the app log view.
+static std::string strip_terminal_escapes(const std::string& input) {
+    std::string output;
+    output.reserve(input.size());
+    for (size_t i = 0; i < input.size(); ++i) {
+        char c = input[i];
+        if (c == '\x1b') {
+            // ANSI escape sequence: skip until we see a letter in [@-~]
+            ++i;
+            while (i < input.size() && !(input[i] >= '@' && input[i] <= '~')) {
+                ++i;
+            }
+            continue;
+        }
+        // Strip other common terminal control characters
+        if (c == '\x07' || c == '\x08' || c == '\x0b' || c == '\x0c' ||
+            c == '\x0e' || c == '\x0f' || c == '\x1a' || c == '\x1c' ||
+            c == '\x1d' || c == '\x1e' || c == '\x1f') {
+            continue;
+        }
+        output.push_back(c);
+    }
+    return output;
+}
+
 static bool is_error_line(const std::string& line) {
     std::string lowered = line;
     std::transform(lowered.begin(), lowered.end(), lowered.begin(),
@@ -68,14 +95,15 @@ static bool is_error_line(const std::string& line) {
 }
 
 static void log_process_line(const std::string& line) {
-    if (should_filter_line(line)) {
+    std::string sanitized = strip_terminal_escapes(line);
+    if (should_filter_line(sanitized)) {
         return;
     }
 
-    if (is_error_line(line)) {
-        LOG(ERROR, "Process") << line << std::endl;
+    if (is_error_line(sanitized)) {
+        LOG(ERROR, "Process") << sanitized << std::endl;
     } else {
-        LOG(INFO, "Process") << line << std::endl;
+        LOG(INFO, "Process") << sanitized << std::endl;
     }
 }
 
