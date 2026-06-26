@@ -65,15 +65,17 @@ bool WrappedServer::wait_for_ready(const std::string& endpoint, long timeout_sec
 }
 
 bool WrappedServer::is_process_running() const {
-#ifdef _WIN32
-    return process_handle_.handle != nullptr;
-#else
-    return process_handle_.pid > 0;
-#endif
+    // Use ProcessManager to do an actual process-liveness check (waitpid with
+    // WNOHANG on POSIX, GetExitCodeProcess on Windows), not just a PID check.
+    // This prevents requests from being sent to zombie/defunct backends.
+    return utils::ProcessManager::is_running(process_handle_);
 }
 
 json WrappedServer::forward_request(const std::string& endpoint, const json& request, long timeout_seconds) {
     if (!is_process_running()) {
+        // Process died; clean up stale state so the router can reload
+        // the model on the next request instead of returning the same error.
+        unload();
         return ErrorResponse::from_exception(ModelNotLoadedException(server_name_));
     }
 
@@ -113,6 +115,7 @@ json WrappedServer::forward_multipart_request(const std::string& endpoint,
                                                const std::vector<utils::MultipartField>& fields,
                                                long timeout_seconds) {
     if (!is_process_running()) {
+        unload();
         return ErrorResponse::from_exception(ModelNotLoadedException(server_name_));
     }
 
@@ -154,6 +157,8 @@ void WrappedServer::forward_streaming_request(const std::string& endpoint,
                                               bool sse,
                                               long timeout_seconds) {
     if (!is_process_running()) {
+        // Process died; clean up stale state so the router can reload.
+        unload();
         std::string error_msg = "data: {\"error\":{\"message\":\"No model loaded: " + server_name_ +
                                "\",\"type\":\"model_not_loaded\"}}\n\n";
         sink.write(error_msg.c_str(), error_msg.size());
