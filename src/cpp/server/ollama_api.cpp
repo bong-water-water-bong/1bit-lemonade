@@ -387,7 +387,7 @@ json OllamaApi::convert_ollama_to_openai_chat(const json& ollama_request) {
             if (msg.contains("images") && msg["images"].is_array() && !msg["images"].empty()) {
                 // Multimodal: convert to OpenAI content array format
                 json content_parts = json::array();
-                if (msg.contains("content") && !msg["content"].get<std::string>().empty()) {
+                if (msg.contains("content") && msg["content"].is_string() && !msg["content"].get<std::string>().empty()) {
                     content_parts.push_back({{"type", "text"}, {"text", msg["content"]}});
                 }
                 for (const auto& img : msg["images"]) {

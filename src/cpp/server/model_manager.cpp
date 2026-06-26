@@ -1393,14 +1393,18 @@ void ModelManager::build_cache() {
     // canonical IDs from any user. or builtin. records that may share a bare
     // name. Bare-name collisions are surfaced via the friendly-name layer in
     // rebuild_public_model_aliases_locked, not by dropping records here.
-    auto discovered_models = discover_extra_models();
-    for (const auto& [name, info] : discovered_models) {
-        if (all_models.find(name) != all_models.end()) {
-            LOG(INFO, "ModelManager") << "Warning: Discovered model '" << name
-                      << "' conflicts with another extra.* registration; skipping." << std::endl;
-            continue;
+    try {
+        auto discovered_models = discover_extra_models();
+        for (const auto& [name, info] : discovered_models) {
+            if (all_models.find(name) != all_models.end()) {
+                LOG(INFO, "ModelManager") << "Warning: Discovered model '" << name
+                          << "' conflicts with another extra.* registration; skipping." << std::endl;
+                continue;
+            }
+            all_models[name] = info;
         }
-        all_models[name] = info;
+    } catch (const std::exception& e) {
+        LOG(ERROR, "ModelManager") << "Error discovering extra models: " << e.what() << std::endl;
     }
 
     // Step 1.6: Discover FLM models from 'flm list --json'
