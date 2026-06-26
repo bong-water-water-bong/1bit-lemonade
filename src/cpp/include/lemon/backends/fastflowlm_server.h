@@ -53,7 +53,9 @@ public:
     json audio_transcriptions(const json& request) override;
 
     // FLM uses /api/tags for readiness check instead of /health
-    bool wait_for_ready();
+    bool wait_for_ready(const std::string& endpoint = "/health",
+                        long timeout_seconds = 600,
+                        long poll_interval_ms = 100) override;
 
     // Override to transform model name to checkpoint for FLM
     void forward_streaming_request(const std::string& endpoint,

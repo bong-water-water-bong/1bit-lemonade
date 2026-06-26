@@ -258,13 +258,25 @@ void FastFlowLMServer::unload() {
     }
 }
 
-bool FastFlowLMServer::wait_for_ready() {
-    // FLM doesn't have a health endpoint, so we use /api/tags to check if it's up
+bool FastFlowLMServer::wait_for_ready(const std::string& endpoint, long timeout_seconds, long poll_interval_ms) {
+    // FLM doesn't have a health endpoint, so we use /api/tags regardless of
+    // the requested endpoint.
+    (void)endpoint;
     std::string tags_url = get_base_url() + "/api/tags";
 
-    LOG(INFO, "FastFlowLM") << "Waiting for " + server_name_ + " to be ready..." << std::endl;
+    // Use global default timeout if none specified (default: 600s = 10 min).
+    if (timeout_seconds == 0) {
+        timeout_seconds = utils::HttpClient::get_default_timeout();
+    }
+    // FLM needs a 1s polling interval; the base class default of 100ms is
+    // too aggressive for NPU-backed model loading.
+    if (poll_interval_ms < 1000) {
+        poll_interval_ms = 1000;
+    }
 
-    const int max_attempts = 300;  // 5 minutes timeout (large models can take time to load)
+    LOG(INFO, "FastFlowLM") << "Waiting for " + server_name_ + " to be ready (timeout: " << timeout_seconds << "s)..." << std::endl;
+
+    const int max_attempts = (timeout_seconds * 1000) / poll_interval_ms;
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
         // Check if process is still running
         if (!utils::ProcessManager::is_running(process_handle_)) {
@@ -289,7 +301,7 @@ bool FastFlowLMServer::wait_for_ready() {
     }
 
     LOG(ERROR, "FastFlowLM") << server_name_ << " failed to start within "
-              << max_attempts << " seconds" << std::endl;
+              << timeout_seconds << " seconds" << std::endl;
     return false;
 }
 
