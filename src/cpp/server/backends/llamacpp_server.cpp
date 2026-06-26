@@ -490,11 +490,32 @@ void LlamaCppServer::unload() {
     }
 }
 
+void LlamaCppServer::normalize_tools(json& request) {
+    // llama.cpp requires every function tool to have a "description" field, but
+    // the OpenAI spec makes it optional. Some clients (e.g. Home Assistant) omit
+    // it, causing a 500 error from llama.cpp. Fill in empty descriptions to match.
+    if (!request.contains("tools") || !request["tools"].is_array()) {
+        return;
+    }
+    for (auto& tool : request["tools"]) {
+        if (!tool.is_object() || !tool.contains("function") || !tool["function"].is_object()) {
+            continue;
+        }
+        auto& func = tool["function"];
+        if (!func.contains("description") || func["description"].is_null()) {
+            func["description"] = "";
+        }
+    }
+}
+
 json LlamaCppServer::chat_completion(const json& request) {
+    // Normalize tool definitions for llama.cpp strictness
+    json modified_request = request;
+    normalize_tools(modified_request);
+
     // OpenAI API compatibility: Transform max_completion_tokens to max_tokens
     // OpenAI deprecated max_tokens in favor of max_completion_tokens (Sep 2024)
     // but llama.cpp only supports the older max_tokens parameter
-    json modified_request = request;
     if (modified_request.contains("max_completion_tokens") && !modified_request.contains("max_tokens")) {
         modified_request["max_tokens"] = modified_request["max_completion_tokens"];
     }
@@ -647,6 +668,26 @@ json LlamaCppServer::tokenize(const json& request_body) {
 
 json LlamaCppServer::responses(const json& request) {
     return forward_request("/v1/responses", request);
+}
+
+void LlamaCppServer::forward_streaming_request(const std::string& endpoint,
+                                                const std::string& request_body,
+                                                httplib::DataSink& sink,
+                                                bool sse,
+                                                long timeout_seconds) {
+    // Normalize tool definitions before forwarding to llama.cpp during
+    // streaming, just as chat_completion() does for non-streaming.
+    try {
+        json request = json::parse(request_body);
+        normalize_tools(request);
+        std::string modified_body = request.dump();
+        WrappedServer::forward_streaming_request(endpoint, modified_body, sink, sse, timeout_seconds);
+    } catch (const json::exception& e) {
+        // JSON parse failure shouldn't happen, but fall through to base class
+        // if it does so streaming isn't broken entirely.
+        LOG(WARNING, "LlamaCpp") << "Failed to parse streaming request body for tool normalization: " << e.what() << std::endl;
+        WrappedServer::forward_streaming_request(endpoint, request_body, sink, sse, timeout_seconds);
+    }
 }
 
 } // namespace backends

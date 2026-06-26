@@ -34,6 +34,10 @@ public:
 
     void unload() override;
 
+    // Normalize tool definitions for llama.cpp compatibility:
+    // fills in empty "description" where missing (llama.cpp requires it).
+    static void normalize_tools(json& request);
+
     // ICompletionServer implementation
     json chat_completion(const json& request) override;
     json completion(const json& request) override;
@@ -51,6 +55,14 @@ public:
 
     // ITokenizerServer implementation
     json tokenize(const json& request) override;
+
+    // Override streaming forwarding to normalize tools before sending to
+    // llama.cpp (llama.cpp requires "description" on function tools).
+    void forward_streaming_request(const std::string& endpoint,
+                                   const std::string& request_body,
+                                   httplib::DataSink& sink,
+                                   bool sse = true,
+                                   long timeout_seconds = 0) override;
 };
 
 } // namespace backends

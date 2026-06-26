@@ -738,6 +738,13 @@ endif()
 # lemond inherits all deps from lemonade-server-core
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE lemonade-server-core)
 
+# C++ unit tests
+enable_testing()
+
+add_executable(test_tool_description_normalization test/cpp/test_tool_description_normalization.cpp)
+target_link_libraries(test_tool_description_normalization PRIVATE lemonade-server-core)
+add_test(NAME test_tool_description_normalization COMMAND test_tool_description_normalization)
+
 # ============================================================
 # Resources
 # ============================================================
