@@ -1804,7 +1804,7 @@ void ModelManager::build_cache() {
     // This avoids a deadlock when another thread holds s_system_info_mutex
     // (e.g., during recipe computation in get_system_info_with_cache()) and
     // simultaneously needs to read from the models cache, which requires
-    // models_cache_mutex_.  See system_info.cpp:4013 for the other lock.
+    // models_cache_mutex_.  See s_system_info_mutex in system_info.cpp.
     json cached_si = SystemInfoCache::get_system_info_with_cache();
     auto flm_status = SystemInfoCache::get_flm_status();
 
@@ -2377,10 +2377,11 @@ std::map<std::string, ModelInfo> ModelManager::filter_models_by_backend(
 
     filtered_out_models_.clear();
 
-    // Use the pre-loaded system info (si) instead of re-querying to avoid a
-    // re-entrant lock on s_system_info_mutex when this is called from build_cache()
-    // which holds models_cache_mutex_ and was entered after get_flm_status()
-    // already acquired s_system_info_mutex.
+    // Use the pre-loaded system info (si) instead of re-querying the cache.
+    // Callers (build_cache, add_model_to_cache) fetch system_info before acquiring
+    // models_cache_mutex_ to maintain the lock ordering: s_system_info_mutex must
+    // be acquired before models_cache_mutex_. Passing the already-loaded data
+    // through avoids a redundant get_system_info_with_cache() call.
     json hardware = si.contains("devices") ? si["devices"] : json::object();
 
     bool npu_available = hardware.contains("amd_npu") &&

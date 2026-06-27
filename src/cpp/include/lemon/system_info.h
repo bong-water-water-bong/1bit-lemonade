@@ -85,16 +85,16 @@ public:
     // Get list of supported backends for a recipe (in preference order)
     static SupportedBackendsResult get_supported_backends(const std::string& recipe);
 
-    // Overload that accepts pre-loaded system_info to avoid re-entrant mutex lock.
+    // Overload that accepts pre-loaded system_info, avoiding a redundant cache lookup.
     static SupportedBackendsResult get_supported_backends_from_cache(const std::string& recipe, const json& system_info);
 
     // Check if a recipe is supported on the current system
     // Returns empty string if supported, or a reason string if not supported
     static std::string check_recipe_supported(const std::string& recipe);
 
-    // Overload that accepts pre-loaded system_info to avoid re-entrant mutex lock.
-    // The caller must have already obtained system_info (e.g., from get_system_info_with_cache())
-    // and is calling this while holding the same internal locks, so we skip the cache lookup.
+    // Overload that accepts pre-loaded system_info. Callers fetch system_info
+    // once (e.g. from get_system_info_with_cache()) and pass it through, avoiding
+    // a redundant cache lookup and maintaining lock ordering.
     static std::string check_recipe_supported(const std::string& recipe, const json& system_info);
 
     // Get all recipes with their backend state info
